@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0  # Ensure tags are available for semantic-release
           fetch-tags: true
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
