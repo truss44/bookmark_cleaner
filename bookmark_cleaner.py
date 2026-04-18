@@ -662,7 +662,6 @@ def write_bookmarks(root: Folder, path: str) -> None:
     Path(path).write_text("".join(lines), encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -670,7 +669,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Clean and organize Microsoft Edge favorites (Netscape Bookmark HTML)."
     )
-    parser.add_argument("input", help="Path to the exported favorites HTML file")
+    parser.add_argument("input", nargs='?', default=None, help="Path to the exported favorites HTML file (defaults to sole .html file in current directory if only one exists)")
     parser.add_argument("--output", default="", help="Output file path (default: auto-named)")
     parser.add_argument("--threads", type=int, default=20, help="Concurrent URL check workers")
     parser.add_argument("--timeout", type=int, default=10, help="Per-URL timeout (seconds)")
@@ -679,6 +678,23 @@ def main():
     parser.add_argument("--no-ai", action="store_true", help="Skip AI folder assignment; use built-in keyword rules instead")
     parser.add_argument("--log", default="bookmark_cleaner.log", help="Log file path")
     args = parser.parse_args()
+
+    # ── Auto-detect HTML file if not specified ─────────────────────────────
+    if args.input is None:
+        html_files = list(Path('.').glob('*.html'))
+        if len(html_files) == 1:
+            args.input = str(html_files[0])
+            print(f"Auto-detected HTML file: {args.input}")
+        elif len(html_files) == 0:
+            print("ERROR: No HTML files found in current directory.", file=sys.stderr)
+            print("Please specify the input file path.", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print("ERROR: Multiple HTML files found in current directory:", file=sys.stderr)
+            for f in html_files:
+                print(f"  - {f}", file=sys.stderr)
+            print("Please specify the input file path.", file=sys.stderr)
+            sys.exit(1)
 
     # ── Ctrl+C handler — clean exit without traceback ─────────────────────
     stop_event = threading.Event()

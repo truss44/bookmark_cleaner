@@ -57,10 +57,17 @@ echo "Dependencies ready."
 # ── Prompt for input file if not provided ─────────────────────────────────
 if [ $# -eq 0 ]; then
     echo ""
-    read -rp "Enter the path to your favorites HTML file: " INPUT_FILE
-    if [ -z "$INPUT_FILE" ]; then
-        echo "ERROR: No input file provided."
-        exit 1
+    # Auto-detect HTML file if only one exists
+    HTML_FILES=("$SCRIPT_DIR"/*.html)
+    if [ ${#HTML_FILES[@]} -eq 1 ] && [ -f "${HTML_FILES[0]}" ]; then
+        INPUT_FILE="${HTML_FILES[0]}"
+        echo "Auto-detected HTML file: $(basename "$INPUT_FILE")"
+    else
+        read -rp "Enter the path to your favorites HTML file: " INPUT_FILE
+        if [ -z "$INPUT_FILE" ]; then
+            echo "ERROR: No input file provided."
+            exit 1
+        fi
     fi
     set -- "$INPUT_FILE"
 fi
