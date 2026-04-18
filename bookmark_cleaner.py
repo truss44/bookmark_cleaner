@@ -23,13 +23,13 @@ Options:
 
 AI Providers (set via environment variables):
     - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
-             default: gpt-5.4-mini)
+             default: gpt-5.4-nano)
     - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
                  default: claude-haiku-4-5)
     - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
              default: gemini-3.1-flash-lite-preview)
     - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
-                default: openai/gpt-5.4-mini)
+                default: openai/gpt-5.4-nano)
 
 Output:
     - <backup>_YYYYMMDD_HHMMSS.html   — original file, untouched
@@ -371,7 +371,7 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
         return (
             "openai",
             os.getenv("OPENAI_API_KEY"),
-            os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+            os.getenv("OPENAI_MODEL", "gpt-5.4-nano"),
         )
     if Anthropic and os.getenv("ANTHROPIC_API_KEY"):
         return (
@@ -389,7 +389,7 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
         return (
             "openrouter",
             os.getenv("OPENROUTER_API_KEY"),
-            os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-mini"),
+            os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-nano"),
         )
     return None
 
@@ -435,13 +435,13 @@ def build_ai_folder_taxonomy(
 
     Supports multiple AI providers via environment variables:
     - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
-             default: gpt-5.4-mini)
+             default: gpt-5.4-nano)
     - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
                  default: claude-haiku-4-5)
     - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
              default: gemini-3.1-flash-lite-preview)
     - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
-                default: openai/gpt-5.4-mini)
+                default: openai/gpt-5.4-nano)
 
     Falls back to rule-based assignment if no API key is set
     or the API call fails.
@@ -478,8 +478,10 @@ Decision rule — reuse vs. create:
 
 Guidance:
 - DEFAULT to creating a new folder when in doubt. Specificity beats reuse.
-- You MAY create sub-folders under existing folders
-  (e.g. "Technology/DevOps", "Finance/Crypto").
+- You MAY nest sub-folders up to 4 levels deep using "/" as a separator
+  (e.g. "Technology/DevOps/CI-CD/GitHub Actions").
+- Use deeper nesting when it meaningfully narrows the topic — do not nest
+  just for the sake of it.
 - Never force bookmarks into a vague existing folder just to avoid
   creating a new one.
 - Still apply the 2-bookmark minimum rule: every folder must contain
@@ -491,13 +493,14 @@ Below is a JSON array of bookmarks, each with an id, title, and URL.
 {existing_section}
 Your task:
 1. Analyse all bookmarks and decide on the best set of top-level folders
-   and optional sub-folders that would logically group them.
+   and sub-folders (up to 4 levels deep) that would logically group them.
    Be specific and meaningful — avoid generic names like "Miscellaneous"
    unless truly needed.
    Use a catch-all folder called "Unsorted Bookmarks" only for items
    that genuinely defy categorisation.
 2. Assign every bookmark to exactly one folder path using "/" as a separator
-   for sub-folders (e.g. "Software Engineering/Frontend").
+   for sub-folders (e.g. "Software Engineering/Frontend/React" or
+   "Finance/Crypto/DeFi/Lending").
 3. IMPORTANT: Every folder you create must contain at least 2 bookmarks.
    Never assign a bookmark to a folder that would contain only that one
    bookmark. Group it with other relevant bookmarks instead, or assign it
