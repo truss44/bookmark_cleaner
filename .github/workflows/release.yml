@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # Ensure tags are available for semantic-release
+          fetch-depth: 0 # Ensure tags are available for semantic-release
           fetch-tags: true
           token: ${{ secrets.GH_TOKEN }}
 
