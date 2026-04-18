@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.1 (2026-04-18)
+
+### Bug Fixes
+
+- Correct semantic-release token configuration
+  ([`17280d0`](https://github.com/truss44/bookmark_cleaner/commit/17280d08cd95ead17a5f7421000bdb40075257bb))
+
+
 ## v1.2.0 (2026-04-18)
 
 ### Bug Fixes
