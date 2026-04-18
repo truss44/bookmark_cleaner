@@ -468,8 +468,22 @@ def build_ai_folder_taxonomy(
 Existing folders already in the bookmark collection:
 {json.dumps(existing_folders, ensure_ascii=False)}
 
-Prefer assigning bookmarks to these existing folders when they are a good
-topical match. You may create new folders only when no existing folder fits.
+Decision rule — reuse vs. create:
+  Score how well each group of bookmarks matches an existing folder (1–10):
+    8–10  Strong, specific match (folder name directly describes the topic)
+          → Reuse the existing folder.
+    1–7   Weak or generic match (existing folder is vague, broad, or only
+          loosely related)
+          → Create a NEW, more specific folder or sub-folder instead.
+
+Guidance:
+- DEFAULT to creating a new folder when in doubt. Specificity beats reuse.
+- You MAY create sub-folders under existing folders
+  (e.g. "Technology/DevOps", "Finance/Crypto").
+- Never force bookmarks into a vague existing folder just to avoid
+  creating a new one.
+- Still apply the 2-bookmark minimum rule: every folder must contain
+  at least 2 bookmarks.
 """
 
     prompt = f"""You are organizing a browser bookmark collection.
