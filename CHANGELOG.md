@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.2 (2026-04-18)
+
+### Bug Fixes
+
+- Preserve PERSONAL_TOOLBAR_FOLDER attribute in bookmark folders
+  ([`5b67077`](https://github.com/truss44/bookmark_cleaner/commit/5b67077fd3897ea9b6b4c22efc458ab669e7032d))
+
+
 ## v1.2.1 (2026-04-18)
 
 ### Bug Fixes
