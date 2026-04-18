@@ -121,7 +121,9 @@ class TestCollectFolderNames:
         assert "Software/Frontend" in names
 
     def test_bookmarks_excluded(self):
-        root = _folder("__root__", _bm("Some Bookmark"), _folder("Real Folder"))
+        root = _folder(
+            "__root__", _bm("Some Bookmark"), _folder("Real Folder")
+        )
         names = _collect_folder_names(root)
         assert names == ["Real Folder"]
 

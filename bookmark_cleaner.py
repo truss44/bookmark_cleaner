@@ -196,7 +196,8 @@ class BookmarkParser(HTMLParser):
             self._current_bookmark.title += data
         elif self._stack:
             # last child of current folder should be the H3 folder
-            last = self._stack[-1].children[-1] if self._stack[-1].children else None
+            kids = self._stack[-1].children
+            last = kids[-1] if kids else None
             if isinstance(last, Folder) and not last.name:
                 last.name += data
 
@@ -224,7 +225,9 @@ _SESSION: Optional[requests.Session] = None
 
 def _make_session() -> requests.Session:
     session = requests.Session()
-    retry = Retry(total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503])
+    retry = Retry(
+        total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503]
+    )
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
@@ -302,7 +305,9 @@ def check_all_bookmarks(
     alive_count = 0
     dead_count = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers
+    ) as pool:
         futures = {pool.submit(_check, bm): bm for bm in bookmarks}
         try:
             for future in concurrent.futures.as_completed(futures):
@@ -320,7 +325,12 @@ def check_all_bookmarks(
                 pct = (done / total) * 100
                 status = "\u2713" if alive else "\u2717"
                 logging.info(
-                    "[%d/%d] %s  %s  (%s)", done, total, status, bm.href, reason
+                    "[%d/%d] %s  %s  (%s)",
+                    done,
+                    total,
+                    status,
+                    bm.href,
+                    reason,
                 )
                 bar_filled = int(pct / 5)
                 bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
@@ -345,7 +355,7 @@ def check_all_bookmarks(
 
 
 def _get_ai_provider() -> Optional[tuple[str, str, str]]:
-    """Return (provider, api_key, model) for the first configured AI provider."""
+    """Return (provider, api_key, model) for first configured AI provider."""
     if OpenAI and os.getenv("OPENAI_API_KEY"):
         return (
             "openai",
@@ -374,7 +384,7 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
 
 
 def _call_ai(provider: str, api_key: str, model: str, prompt: str) -> str:
-    """Dispatch a prompt to the given AI provider and return the raw text response."""
+    """Dispatch prompt to AI provider and return raw text response."""
     if provider == "openai":
         client = OpenAI(api_key=api_key)
         response = client.responses.create(model=model, input=prompt)
@@ -482,7 +492,9 @@ Bookmarks:
 {json.dumps(bm_list, ensure_ascii=False)}
 """
 
-    print(f"  Sending bookmark list to {provider}/{model} for folder taxonomy …")
+    print(
+        f"  Sending bookmark list to {provider}/{model} for folder taxonomy …"
+    )
     try:
         raw = _call_ai(provider, api_key, model, prompt)
         # Strip markdown fences if model adds them
@@ -1067,9 +1079,11 @@ def collect_unfoldered(root: Folder) -> list[Bookmark]:
 
 
 def remove_dead_bookmarks(node, removed: list) -> None:
-    """Walk the tree in-place and remove any bookmarks with alive == False."""
+    """Walk tree in-place; remove bookmarks with alive == False."""
     to_remove = [
-        c for c in node.children if isinstance(c, Bookmark) and c.alive is False
+        c
+        for c in node.children
+        if isinstance(c, Bookmark) and c.alive is False
     ]
     for bm in to_remove:
         node.children.remove(bm)
@@ -1084,7 +1098,9 @@ def remove_dead_bookmarks(node, removed: list) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _collect_folder_names(root: Folder, _path: Optional[list[str]] = None) -> list[str]:
+def _collect_folder_names(
+    root: Folder, _path: Optional[list[str]] = None
+) -> list[str]:
     """Return sorted list of all folder paths in the tree (slash-separated)."""
     if _path is None:
         _path = []
@@ -1104,11 +1120,13 @@ def _move_bookmark(source: Folder, dest: Folder, bm: Bookmark) -> None:
 
 
 def _delete_empty_folder(parent: Folder, folder: Folder) -> None:
-    """Remove folder from parent. Raises ValueError if folder is non-empty or not found."""
+    """Remove folder from parent. Raises ValueError if non-empty/not found."""
     if folder.children:
         raise ValueError(f"Cannot delete non-empty folder: {folder.name!r}")
     if folder not in parent.children:
-        raise ValueError(f"Folder {folder.name!r} not found in parent {parent.name!r}")
+        raise ValueError(
+            f"Folder {folder.name!r} not found in parent {parent.name!r}"
+        )
     parent.children.remove(folder)
 
 
@@ -1132,8 +1150,9 @@ def collect_singleton_folders(
     results: list[tuple[Folder, Folder, Bookmark]] = []
     for child in root.children:
         if isinstance(child, Folder):
-            if len(child.children) == 1 and isinstance(child.children[0], Bookmark):
-                results.append((root, child, child.children[0]))
+            lone = child.children[0] if len(child.children) == 1 else None
+            if lone is not None and isinstance(lone, Bookmark):
+                results.append((root, child, lone))
             else:
                 results.extend(collect_singleton_folders(child))
     return results
@@ -1142,30 +1161,26 @@ def collect_singleton_folders(
 def _ai_best_folder_for_bookmark(
     bm: Bookmark, folder_names: list[str]
 ) -> Optional[str]:
-    """Ask AI which existing folder best fits a lone bookmark. Returns folder path or None."""
+    """Ask AI which existing folder best fits a lone bookmark."""
     prov = _get_ai_provider()
     if prov is None:
         return None
     provider, api_key, model = prov
 
-    prompt = f"""A bookmark is currently in its own isolated folder with no other bookmarks.
-Find the BEST existing folder from the list below to place it in.
-
-Bookmark:
-  Title: {bm.title}
-  URL: {bm.href}
-
-Available folders:
-{json.dumps(folder_names, ensure_ascii=False)}
-
-Rules:
-- Return ONLY a JSON string — the exact folder path from the list above.
-- Do not invent new folder names.
-- Pick the most topically relevant folder.
-- If nothing fits well, return "Unsorted Bookmarks".
-
-Example output: "Software Engineering/Frontend"
-"""
+    prompt = (
+        "A bookmark is currently in its own isolated folder "
+        "with no other bookmarks.\n"
+        "Find the BEST existing folder from the list below to place it in.\n"
+        f"\nBookmark:\n  Title: {bm.title}\n  URL: {bm.href}\n"
+        "\nAvailable folders:\n"
+        f"{json.dumps(folder_names, ensure_ascii=False)}\n"
+        "\nRules:\n"
+        "- Return ONLY a JSON string — exact folder path from list above.\n"
+        "- Do not invent new folder names.\n"
+        "- Pick the most topically relevant folder.\n"
+        '- If nothing fits well, return "Unsorted Bookmarks".\n'
+        '\nExample output: "Software Engineering/Frontend"\n'
+    )
     try:
         raw = _call_ai(provider, api_key, model, prompt)
         raw = raw.strip().strip('"').strip("'")
@@ -1183,7 +1198,8 @@ def consolidate_singleton_folders(root: Folder, use_ai: bool = True) -> int:
     """
     Detect folders with exactly one bookmark, relocate that bookmark to the
     best matching existing folder, and delete the now-empty folder.
-    Repeats until no singleton folders remain. Returns count of relocated bookmarks.
+    Repeats until no singleton folders remain.
+    Returns count of relocated bookmarks.
     """
     total_moved = 0
     while True:
@@ -1219,7 +1235,7 @@ def consolidate_singleton_folders(root: Folder, use_ai: bool = True) -> int:
 
 
 def sort_tree(node: Folder) -> None:
-    """Sort children alphabetically: folders first (by name), then bookmarks (by title)."""
+    """Sort children: folders first (by name), then bookmarks (by title)."""
     node.children.sort(
         key=lambda c: (
             isinstance(c, Bookmark),
@@ -1262,18 +1278,25 @@ def _write_tree(node, lines: list[str], indent: int = 0) -> None:
     pad = "    " * indent
     for child in node.children:
         if isinstance(child, Folder):
-            add_date = f' ADD_DATE="{child.add_date}"' if child.add_date else ""
+            add_date = (
+                f' ADD_DATE="{child.add_date}"' if child.add_date else ""
+            )
             last_mod = (
-                f' LAST_MODIFIED="{child.last_modified}"' if child.last_modified else ""
+                f' LAST_MODIFIED="{child.last_modified}"'
+                if child.last_modified
+                else ""
             )
             lines.append(
-                f"{pad}<DT><H3{add_date}{last_mod}>" f"{_esc(child.name)}</H3>\n"
+                f"{pad}<DT><H3{add_date}{last_mod}>"
+                f"{_esc(child.name)}</H3>\n"
             )
             lines.append(f"{pad}<DL><p>\n")
             _write_tree(child, lines, indent + 1)
             lines.append(f"{pad}</DL><p>\n")
         elif isinstance(child, Bookmark):
-            add_date = f' ADD_DATE="{child.add_date}"' if child.add_date else ""
+            add_date = (
+                f' ADD_DATE="{child.add_date}"' if child.add_date else ""
+            )
             icon = f' ICON="{child.icon}"' if child.icon else ""
             lines.append(
                 f'{pad}<DT><A HREF="{_esc(child.href)}"'
@@ -1314,17 +1337,23 @@ def main():
         "--timeout", type=int, default=10, help="Per-URL timeout (seconds)"
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Report only; do not write output"
+        "--dry-run",
+        action="store_true",
+        help="Report only; do not write output",
     )
     parser.add_argument(
-        "--skip-check", action="store_true", help="Skip URL reachability checks"
+        "--skip-check",
+        action="store_true",
+        help="Skip URL reachability checks",
     )
     parser.add_argument(
         "--no-ai",
         action="store_true",
-        help="Skip AI folder assignment; use built-in keyword rules instead",
+        help="Skip AI folder assignment; use keyword rules instead",
     )
-    parser.add_argument("--log", default="bookmark_cleaner.log", help="Log file path")
+    parser.add_argument(
+        "--log", default="bookmark_cleaner.log", help="Log file path"
+    )
     args = parser.parse_args()
 
     # ── Auto-detect HTML file if not specified ─────────────────────────────
@@ -1334,7 +1363,10 @@ def main():
             args.input = str(html_files[0])
             print(f"Auto-detected HTML file: {args.input}")
         elif len(html_files) == 0:
-            print("ERROR: No HTML files found in current directory.", file=sys.stderr)
+            print(
+                "ERROR: No HTML files found in current directory.",
+                file=sys.stderr,
+            )
             print("Please specify the input file path.", file=sys.stderr)
             sys.exit(1)
         else:
@@ -1427,12 +1459,10 @@ def main():
         )
 
         if stop_event.is_set():
-            print(
-                "\n  Interrupted — saving results for checked " "bookmarks and exiting."
-            )
+            print("\n  Interrupted — saving results for checked bookmarks.")
             unchecked = [bm for bm in all_bookmarks if bm.alive is None]
             if unchecked:
-                print(f"  {len(unchecked)} unchecked bookmarks " "will be kept as-is.")
+                print(f"  {len(unchecked)} unchecked bookmarks will be kept.")
                 for bm in unchecked:
                     bm.alive = True  # preserve unchecked bookmarks
         if not args.dry_run:
@@ -1473,17 +1503,23 @@ def main():
         print("\nConsolidating singleton folders …")
         relocated = consolidate_singleton_folders(root, use_ai=not args.no_ai)
         if relocated:
-            print(f"  Relocated {relocated} bookmark(s) from singleton folders.")
+            print(
+                f"  Relocated {relocated} bookmark(s) from singleton folders."
+            )
         else:
             print("  No singleton folders found.")
     else:
         singletons = collect_singleton_folders(root)
         if singletons:
             print(
-                f"\n[dry-run] {len(singletons)} singleton folder(s) would be consolidated:"
+                f"\n[dry-run] {len(singletons)} singleton folder(s) "
+                "would be consolidated:"
             )
             for _, sf, bm in singletons:
-                print(f"  '{sf.name}' → bookmark '{bm.title[:60]}' would be relocated")
+                print(
+                    f"  '{sf.name}' → bookmark "
+                    f"'{bm.title[:60]}' would be relocated"
+                )
 
     # ── Sort all folders and bookmarks alphabetically ──────────────────────
     if not args.dry_run:
@@ -1498,8 +1534,12 @@ def main():
         print("\n[dry-run] No output file written.")
     print(f"\nDetailed log: {args.log}")
     print("\nTo import into Edge:")
-    print("  Settings → Import browser data → Favorites or bookmarks HTML file")
-    print("  → Select: " f"{output_path if not args.dry_run else '(output file)'}")
+    print(
+        "  Settings → Import browser data →"
+        " Favorites or bookmarks HTML file"
+    )
+    out = output_path if not args.dry_run else "(output file)"
+    print(f"  → Select: {out}")
 
 
 def _count_folders(node) -> int:
