@@ -59,11 +59,15 @@ import json
 import requests
 import urllib3
 from dotenv import load_dotenv
-from openai import OpenAI
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # Optional AI provider SDKs - imported only if available
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
 try:
     from anthropic import Anthropic
 except ImportError:
@@ -107,7 +111,7 @@ class Bookmark:
         self.add_date = add_date
         self.icon = icon
         self.raw_attrs = raw_attrs or {}
-        self.folder_path: list[str] = []   # folders this bookmark lives in
+        self.folder_path: list[str] = []  # folders this bookmark lives in
         self.alive: Optional[bool] = None  # None = unchecked
 
     def __repr__(self):
@@ -130,6 +134,7 @@ class Folder:
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
 
 class BookmarkParser(HTMLParser):
     """Parse a Netscape Bookmark HTML file into a tree of Folder / Bookmark."""
@@ -160,7 +165,7 @@ class BookmarkParser(HTMLParser):
                 last_modified=attr_dict.get("last_modified", ""),
             )
             self._stack[-1].children.append(folder)
-            self._in_title = True   # next data is the folder name
+            self._in_title = True  # next data is the folder name
             self._current_bookmark = None
         elif tag == "A":
             bm = Bookmark(
@@ -191,10 +196,7 @@ class BookmarkParser(HTMLParser):
             self._current_bookmark.title += data
         elif self._stack:
             # last child of current folder should be the H3 folder
-            last = (
-                self._stack[-1].children[-1]
-                if self._stack[-1].children else None
-            )
+            last = self._stack[-1].children[-1] if self._stack[-1].children else None
             if isinstance(last, Folder) and not last.name:
                 last.name += data
 
@@ -222,11 +224,7 @@ _SESSION: Optional[requests.Session] = None
 
 def _make_session() -> requests.Session:
     session = requests.Session()
-    retry = Retry(
-        total=2,
-        backoff_factor=0.3,
-        status_forcelist=[500, 502, 503]
-    )
+    retry = Retry(total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503])
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
@@ -304,9 +302,7 @@ def check_all_bookmarks(
     alive_count = 0
     dead_count = 0
 
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=max_workers
-    ) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_check, bm): bm for bm in bookmarks}
         try:
             for future in concurrent.futures.as_completed(futures):
@@ -324,8 +320,7 @@ def check_all_bookmarks(
                 pct = (done / total) * 100
                 status = "\u2713" if alive else "\u2717"
                 logging.info(
-                    "[%d/%d] %s  %s  (%s)",
-                    done, total, status, bm.href, reason
+                    "[%d/%d] %s  %s  (%s)", done, total, status, bm.href, reason
                 )
                 bar_filled = int(pct / 5)
                 bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
@@ -348,11 +343,74 @@ def check_all_bookmarks(
 # Gemini, or OpenRouter
 # ---------------------------------------------------------------------------
 
-def build_ai_folder_taxonomy(bookmarks: list[Bookmark]) -> dict[str, str]:
+
+def _get_ai_provider() -> Optional[tuple[str, str, str]]:
+    """Return (provider, api_key, model) for the first configured AI provider."""
+    if OpenAI and os.getenv("OPENAI_API_KEY"):
+        return (
+            "openai",
+            os.getenv("OPENAI_API_KEY"),
+            os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+        )
+    if Anthropic and os.getenv("ANTHROPIC_API_KEY"):
+        return (
+            "anthropic",
+            os.getenv("ANTHROPIC_API_KEY"),
+            os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5"),
+        )
+    if genai and (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
+        return (
+            "gemini",
+            os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+            os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"),
+        )
+    if OpenRouter and os.getenv("OPENROUTER_API_KEY"):
+        return (
+            "openrouter",
+            os.getenv("OPENROUTER_API_KEY"),
+            os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-mini"),
+        )
+    return None
+
+
+def _call_ai(provider: str, api_key: str, model: str, prompt: str) -> str:
+    """Dispatch a prompt to the given AI provider and return the raw text response."""
+    if provider == "openai":
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(model=model, input=prompt)
+        return response.output_text.strip()
+    if provider == "anthropic":
+        client = Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=model,
+            max_tokens=8192,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text.strip()
+    if provider == "gemini":
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(model=model, contents=prompt)
+        return response.text.strip()
+    if provider == "openrouter":
+        with OpenRouter(api_key=api_key) as client:
+            response = client.chat.send(
+                model=model, messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content.strip()
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def build_ai_folder_taxonomy(
+    bookmarks: list[Bookmark],
+    existing_folders: Optional[list[str]] = None,
+) -> dict[str, str]:
     """
     Send all surviving bookmark titles + URLs to an AI model in a single
     prompt. Returns a dict mapping each bookmark href to its suggested
     folder path (e.g. "Software Engineering/Frontend" or "Health & Fitness").
+
+    existing_folders: optional list of folder paths already in the tree so
+    the AI can reuse them instead of creating new ones.
 
     Supports multiple AI providers via environment variables:
     - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
@@ -367,33 +425,8 @@ def build_ai_folder_taxonomy(bookmarks: list[Bookmark]) -> dict[str, str]:
     Falls back to rule-based assignment if no API key is set
     or the API call fails.
     """
-    # Check for available API keys in priority order
-    provider = None
-    api_key = None
-    model = None
-
-    # Try OpenAI first
-    if os.getenv("OPENAI_API_KEY"):
-        provider = "openai"
-        api_key = os.getenv("OPENAI_API_KEY")
-        model = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
-    # Try Anthropic
-    elif Anthropic and os.getenv("ANTHROPIC_API_KEY"):
-        provider = "anthropic"
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
-    # Try Gemini
-    elif genai and (os.getenv("GEMINI_API_KEY")
-                    or os.getenv("GOOGLE_API_KEY")):
-        provider = "gemini"
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
-    # Try OpenRouter
-    elif OpenRouter and os.getenv("OPENROUTER_API_KEY"):
-        provider = "openrouter"
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        model = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-mini")
-    else:
+    prov = _get_ai_provider()
+    if prov is None:
         print(
             "  WARNING: No AI API key set (OPENAI_API_KEY, "
             "ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY) — "
@@ -401,15 +434,26 @@ def build_ai_folder_taxonomy(bookmarks: list[Bookmark]) -> dict[str, str]:
         )
         return {}
 
-    # Build a compact list of bookmarks for the prompt
+    provider, api_key, model = prov
+
     bm_list = [
         {"id": i, "title": bm.title.strip(), "url": bm.href}
         for i, bm in enumerate(bookmarks)
     ]
 
+    existing_section = ""
+    if existing_folders:
+        existing_section = f"""
+Existing folders already in the bookmark collection:
+{json.dumps(existing_folders, ensure_ascii=False)}
+
+Prefer assigning bookmarks to these existing folders when they are a good
+topical match. You may create new folders only when no existing folder fits.
+"""
+
     prompt = f"""You are organizing a browser bookmark collection.
 Below is a JSON array of bookmarks, each with an id, title, and URL.
-
+{existing_section}
 Your task:
 1. Analyse all bookmarks and decide on the best set of top-level folders
    and optional sub-folders that would logically group them.
@@ -419,7 +463,11 @@ Your task:
    that genuinely defy categorisation.
 2. Assign every bookmark to exactly one folder path using "/" as a separator
    for sub-folders (e.g. "Software Engineering/Frontend").
-3. Return ONLY a valid JSON object mapping each numeric id
+3. IMPORTANT: Every folder you create must contain at least 2 bookmarks.
+   Never assign a bookmark to a folder that would contain only that one
+   bookmark. Group it with other relevant bookmarks instead, or assign it
+   to the closest relevant existing folder or to "Unsorted Bookmarks".
+4. Return ONLY a valid JSON object mapping each numeric id
    (as a string key) to its folder path string.
    No explanation, no markdown, no extra keys.
 
@@ -434,48 +482,14 @@ Bookmarks:
 {json.dumps(bm_list, ensure_ascii=False)}
 """
 
-    print(f"  Sending bookmark list to {provider}/{model} "
-          f"for folder taxonomy …")
+    print(f"  Sending bookmark list to {provider}/{model} for folder taxonomy …")
     try:
-        raw = ""
-
-        if provider == "openai":
-            client = OpenAI(api_key=api_key)
-            response = client.responses.create(
-                model=model,
-                input=prompt,
-            )
-            raw = response.output_text.strip()
-        elif provider == "anthropic":
-            client = Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model=model,
-                max_tokens=8192,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            # Anthropic returns content blocks
-            raw = response.content[0].text.strip()
-        elif provider == "gemini":
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
-            raw = response.text.strip()
-        elif provider == "openrouter":
-            with OpenRouter(api_key=api_key) as client:
-                response = client.chat.send(
-                    model=model,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                raw = response.choices[0].message.content.strip()
-
+        raw = _call_ai(provider, api_key, model, prompt)
         # Strip markdown fences if model adds them
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1]
             raw = raw.rsplit("```", 1)[0].strip()
         mapping_by_index = json.loads(raw)
-        # Convert index-keyed dict to href-keyed dict
         href_map: dict[str, str] = {}
         for idx_str, folder_path in mapping_by_index.items():
             idx = int(idx_str)
@@ -587,106 +601,367 @@ TOPIC_RULES: list[tuple[str, list[str]]] = [
         ],
     ),
     # ... rest of the code remains the same ...
-    ("Software Engineering/DevOps & Monitoring", [
-        "dynatrace", "grafana", "datadog", "splunk", "pagerduty", "opsgenie",
-        "prometheus", "kibana", "elastic", "new relic", "jira", "jira service",
-        "atlassian", "confluence",
-    ]),
-    ("Software Engineering/Docker & Containers", [
-        "docker", "kubernetes", "k8s", "helm", "podman", "containerd",
-    ]),
-    ("Software Engineering/Frontend", [
-        "bootstrap", "tailwind", "react", "vue", "angular", "svelte", "nextjs",
-        "html", "css", "javascript", "jquery", "webpack", "vite",
-    ]),
-    ("Software Engineering/Node & NPM", [
-        "nodejs", "npm", "yarn", "deno", "bun", "express", "fastify",
-    ]),
-    ("Software Engineering/Python", [
-        "python", "pypi", "flask", "django", "fastapi", "pandas", "numpy",
-    ]),
-    ("Software Engineering/Mobile", [
-        "android", "ios", "flutter", "react native", "ionic", "phonegap",
-        "framework7", "firebase", "expo", "capacitor",
-    ]),
-    ("Software Engineering/Databases", [
-        "postgresql", "mysql", "mongodb", "redis", "sqlite", "oracle",
-        "supabase", "planetscale",
-    ]),
-    ("Software Engineering/Version Control", [
-        "github", "gitlab", "bitbucket", "svn", "git",
-    ]),
-    ("Software Engineering", [
-        "stack overflow", "mdn web", "developer", "programming", "tutorial",
-        "documentation", "docs.", "/docs/", "perl", "php", "laravel", "java",
-        "kotlin", "swift", "rust", "go lang", "coding", "free tools",
-        "dev.to", "medium.com",
-    ]),
-    ("Finance & Crypto/Crypto", [
-        "coinbase", "binance", "kraken", "crypto", "bitcoin", "ethereum",
-        "defi", "nft", "coingecko", "coinmarketcap", "uniswap",
-    ]),
-    ("Finance & Crypto", [
-        "bank", "finance", "invest", "stock", "etf", "brokerage",
-        "credit card", "loan", "mortgage", "tax", "fidelity", "vanguard",
-        "schwab", "robinhood", "5/3", "53.com",
-    ]),
-    ("Health & Fitness/Nutrition & Diet", [
-        "recipe", "food hub", "myfitnesspal", "nutrition", "calorie",
-        "diet", "keto", "mediterranean dish", "ninja creami", "weight loss",
-        "factor75", "factor meal", "diabetes food", "vitamix",
-    ]),
-    ("Health & Fitness/Exercise", [
-        "yoga", "workout", "exercise", "fitness", "ddp yoga", "gym",
-        "crossfit", "running", "cycling",
-    ]),
-    ("Health & Fitness/Mental Health", [
-        "talkspace", "betterhelp", "therapy", "mental health", "meditation",
-        "calm", "headspace",
-    ]),
-    ("Health & Fitness/Medical", [
-        "peptide", "supplement", "pharmacy", "cap-rx", "medication",
-        "health", "medical",
-    ]),
+    (
+        "Software Engineering/DevOps & Monitoring",
+        [
+            "dynatrace",
+            "grafana",
+            "datadog",
+            "splunk",
+            "pagerduty",
+            "opsgenie",
+            "prometheus",
+            "kibana",
+            "elastic",
+            "new relic",
+            "jira",
+            "jira service",
+            "atlassian",
+            "confluence",
+        ],
+    ),
+    (
+        "Software Engineering/Docker & Containers",
+        [
+            "docker",
+            "kubernetes",
+            "k8s",
+            "helm",
+            "podman",
+            "containerd",
+        ],
+    ),
+    (
+        "Software Engineering/Frontend",
+        [
+            "bootstrap",
+            "tailwind",
+            "react",
+            "vue",
+            "angular",
+            "svelte",
+            "nextjs",
+            "html",
+            "css",
+            "javascript",
+            "jquery",
+            "webpack",
+            "vite",
+        ],
+    ),
+    (
+        "Software Engineering/Node & NPM",
+        [
+            "nodejs",
+            "npm",
+            "yarn",
+            "deno",
+            "bun",
+            "express",
+            "fastify",
+        ],
+    ),
+    (
+        "Software Engineering/Python",
+        [
+            "python",
+            "pypi",
+            "flask",
+            "django",
+            "fastapi",
+            "pandas",
+            "numpy",
+        ],
+    ),
+    (
+        "Software Engineering/Mobile",
+        [
+            "android",
+            "ios",
+            "flutter",
+            "react native",
+            "ionic",
+            "phonegap",
+            "framework7",
+            "firebase",
+            "expo",
+            "capacitor",
+        ],
+    ),
+    (
+        "Software Engineering/Databases",
+        [
+            "postgresql",
+            "mysql",
+            "mongodb",
+            "redis",
+            "sqlite",
+            "oracle",
+            "supabase",
+            "planetscale",
+        ],
+    ),
+    (
+        "Software Engineering/Version Control",
+        [
+            "github",
+            "gitlab",
+            "bitbucket",
+            "svn",
+            "git",
+        ],
+    ),
+    (
+        "Software Engineering",
+        [
+            "stack overflow",
+            "mdn web",
+            "developer",
+            "programming",
+            "tutorial",
+            "documentation",
+            "docs.",
+            "/docs/",
+            "perl",
+            "php",
+            "laravel",
+            "java",
+            "kotlin",
+            "swift",
+            "rust",
+            "go lang",
+            "coding",
+            "free tools",
+            "dev.to",
+            "medium.com",
+        ],
+    ),
+    (
+        "Finance & Crypto/Crypto",
+        [
+            "coinbase",
+            "binance",
+            "kraken",
+            "crypto",
+            "bitcoin",
+            "ethereum",
+            "defi",
+            "nft",
+            "coingecko",
+            "coinmarketcap",
+            "uniswap",
+        ],
+    ),
+    (
+        "Finance & Crypto",
+        [
+            "bank",
+            "finance",
+            "invest",
+            "stock",
+            "etf",
+            "brokerage",
+            "credit card",
+            "loan",
+            "mortgage",
+            "tax",
+            "fidelity",
+            "vanguard",
+            "schwab",
+            "robinhood",
+            "5/3",
+            "53.com",
+        ],
+    ),
+    (
+        "Health & Fitness/Nutrition & Diet",
+        [
+            "recipe",
+            "food hub",
+            "myfitnesspal",
+            "nutrition",
+            "calorie",
+            "diet",
+            "keto",
+            "mediterranean dish",
+            "ninja creami",
+            "weight loss",
+            "factor75",
+            "factor meal",
+            "diabetes food",
+            "vitamix",
+        ],
+    ),
+    (
+        "Health & Fitness/Exercise",
+        [
+            "yoga",
+            "workout",
+            "exercise",
+            "fitness",
+            "ddp yoga",
+            "gym",
+            "crossfit",
+            "running",
+            "cycling",
+        ],
+    ),
+    (
+        "Health & Fitness/Mental Health",
+        [
+            "talkspace",
+            "betterhelp",
+            "therapy",
+            "mental health",
+            "meditation",
+            "calm",
+            "headspace",
+        ],
+    ),
+    (
+        "Health & Fitness/Medical",
+        [
+            "peptide",
+            "supplement",
+            "pharmacy",
+            "cap-rx",
+            "medication",
+            "health",
+            "medical",
+        ],
+    ),
     ("Health & Fitness", ["health", "wellness", "medicine"]),
-    ("Shopping & Deals", [
-        "ebay", "amazon", "etsy", "walmart", "target", "bestbuy",
-        "deal", "coupon", "discount", "shop",
-    ]),
-    ("Social & Communication", [
-        "facebook", "twitter", "instagram", "linkedin", "reddit", "discord",
-        "slack", "youtube", "tiktok", "mastodon",
-    ]),
-    ("Entertainment/Gaming", [
-        "steam", "gog", "epic games", "gaming", "game", "twitch",
-    ]),
-    ("Entertainment/Media", [
-        "netflix", "hulu", "spotify", "ticketmaster", "12ft", "paywall",
-    ]),
-    ("Travel", [
-        "travel", "hotel", "flight", "airbnb", "booking.com", "expedia",
-        "tripadvisor", "kayak",
-    ]),
-    ("Education", [
-        "udemy", "coursera", "pluralsight", "linkedin learn", "edx",
-        "pega university", "google skills", "skillshare", "tutorial",
-        "learn", "course",
-    ]),
-    ("Productivity", [
-        "notion", "trello", "asana", "monday.com", "todoist", "google docs",
-        "drive", "dropbox", "airtable",
-    ]),
-    ("Community & Organizations", [
-        "civitan", "volunteer", "nonprofit", "church", "charity",
-    ]),
-    ("Job Sites", [
-        "indeed", "linkedin job", "glassdoor", "monster", "ziprecruiter",
-        "mystery shopping", "settlement",
-    ]),
-    ("News & Reference", [
-        "news", "wikipedia", "bbc", "cnn", "nytimes", "reuters",
-        "techcrunch", "wired", "ars technica",
-    ]),
+    (
+        "Shopping & Deals",
+        [
+            "ebay",
+            "amazon",
+            "etsy",
+            "walmart",
+            "target",
+            "bestbuy",
+            "deal",
+            "coupon",
+            "discount",
+            "shop",
+        ],
+    ),
+    (
+        "Social & Communication",
+        [
+            "facebook",
+            "twitter",
+            "instagram",
+            "linkedin",
+            "reddit",
+            "discord",
+            "slack",
+            "youtube",
+            "tiktok",
+            "mastodon",
+        ],
+    ),
+    (
+        "Entertainment/Gaming",
+        [
+            "steam",
+            "gog",
+            "epic games",
+            "gaming",
+            "game",
+            "twitch",
+        ],
+    ),
+    (
+        "Entertainment/Media",
+        [
+            "netflix",
+            "hulu",
+            "spotify",
+            "ticketmaster",
+            "12ft",
+            "paywall",
+        ],
+    ),
+    (
+        "Travel",
+        [
+            "travel",
+            "hotel",
+            "flight",
+            "airbnb",
+            "booking.com",
+            "expedia",
+            "tripadvisor",
+            "kayak",
+        ],
+    ),
+    (
+        "Education",
+        [
+            "udemy",
+            "coursera",
+            "pluralsight",
+            "linkedin learn",
+            "edx",
+            "pega university",
+            "google skills",
+            "skillshare",
+            "tutorial",
+            "learn",
+            "course",
+        ],
+    ),
+    (
+        "Productivity",
+        [
+            "notion",
+            "trello",
+            "asana",
+            "monday.com",
+            "todoist",
+            "google docs",
+            "drive",
+            "dropbox",
+            "airtable",
+        ],
+    ),
+    (
+        "Community & Organizations",
+        [
+            "civitan",
+            "volunteer",
+            "nonprofit",
+            "church",
+            "charity",
+        ],
+    ),
+    (
+        "Job Sites",
+        [
+            "indeed",
+            "linkedin job",
+            "glassdoor",
+            "monster",
+            "ziprecruiter",
+            "mystery shopping",
+            "settlement",
+        ],
+    ),
+    (
+        "News & Reference",
+        [
+            "news",
+            "wikipedia",
+            "bbc",
+            "cnn",
+            "nytimes",
+            "reuters",
+            "techcrunch",
+            "wired",
+            "ars technica",
+        ],
+    ),
 ]
 
 
@@ -771,6 +1046,7 @@ def organize_unfoldered(
 # Collect helpers
 # ---------------------------------------------------------------------------
 
+
 def collect_all_bookmarks(node, path: list[str] = None) -> list[Bookmark]:
     """Walk the tree and return every bookmark with its folder_path set."""
     if path is None:
@@ -793,8 +1069,7 @@ def collect_unfoldered(root: Folder) -> list[Bookmark]:
 def remove_dead_bookmarks(node, removed: list) -> None:
     """Walk the tree in-place and remove any bookmarks with alive == False."""
     to_remove = [
-        c for c in node.children
-        if isinstance(c, Bookmark) and c.alive is False
+        c for c in node.children if isinstance(c, Bookmark) and c.alive is False
     ]
     for bm in to_remove:
         node.children.remove(bm)
@@ -802,6 +1077,158 @@ def remove_dead_bookmarks(node, removed: list) -> None:
     for child in node.children:
         if isinstance(child, Folder):
             remove_dead_bookmarks(child, removed)
+
+
+# ---------------------------------------------------------------------------
+# Singleton folder consolidation
+# ---------------------------------------------------------------------------
+
+
+def _collect_folder_names(root: Folder, _path: Optional[list[str]] = None) -> list[str]:
+    """Return sorted list of all folder paths in the tree (slash-separated)."""
+    if _path is None:
+        _path = []
+    names: list[str] = []
+    for child in root.children:
+        if isinstance(child, Folder):
+            child_path = _path + [child.name]
+            names.append("/".join(child_path))
+            names.extend(_collect_folder_names(child, child_path))
+    return sorted(names)
+
+
+def _move_bookmark(source: Folder, dest: Folder, bm: Bookmark) -> None:
+    """Remove bm from source.children and append to dest.children."""
+    source.children.remove(bm)
+    dest.children.append(bm)
+
+
+def _delete_empty_folder(parent: Folder, folder: Folder) -> None:
+    """Remove folder from parent. Raises ValueError if folder is non-empty or not found."""
+    if folder.children:
+        raise ValueError(f"Cannot delete non-empty folder: {folder.name!r}")
+    if folder not in parent.children:
+        raise ValueError(f"Folder {folder.name!r} not found in parent {parent.name!r}")
+    parent.children.remove(folder)
+
+
+def _prune_empty_folders(node: Folder) -> None:
+    """Recursively remove all childless folders from the tree."""
+    for child in list(node.children):
+        if isinstance(child, Folder):
+            _prune_empty_folders(child)
+            if not child.children:
+                node.children.remove(child)
+
+
+def collect_singleton_folders(
+    root: Folder,
+) -> list[tuple[Folder, Folder, Bookmark]]:
+    """
+    Return (parent, singleton_folder, lone_bookmark) for every folder that
+    contains exactly one child and that child is a Bookmark (not a sub-folder).
+    The root itself is never returned as a candidate.
+    """
+    results: list[tuple[Folder, Folder, Bookmark]] = []
+    for child in root.children:
+        if isinstance(child, Folder):
+            if len(child.children) == 1 and isinstance(child.children[0], Bookmark):
+                results.append((root, child, child.children[0]))
+            else:
+                results.extend(collect_singleton_folders(child))
+    return results
+
+
+def _ai_best_folder_for_bookmark(
+    bm: Bookmark, folder_names: list[str]
+) -> Optional[str]:
+    """Ask AI which existing folder best fits a lone bookmark. Returns folder path or None."""
+    prov = _get_ai_provider()
+    if prov is None:
+        return None
+    provider, api_key, model = prov
+
+    prompt = f"""A bookmark is currently in its own isolated folder with no other bookmarks.
+Find the BEST existing folder from the list below to place it in.
+
+Bookmark:
+  Title: {bm.title}
+  URL: {bm.href}
+
+Available folders:
+{json.dumps(folder_names, ensure_ascii=False)}
+
+Rules:
+- Return ONLY a JSON string — the exact folder path from the list above.
+- Do not invent new folder names.
+- Pick the most topically relevant folder.
+- If nothing fits well, return "Unsorted Bookmarks".
+
+Example output: "Software Engineering/Frontend"
+"""
+    try:
+        raw = _call_ai(provider, api_key, model, prompt)
+        raw = raw.strip().strip('"').strip("'")
+        if raw in folder_names:
+            return raw
+        lower_map = {n.lower(): n for n in folder_names}
+        if raw.lower() in lower_map:
+            return lower_map[raw.lower()]
+        return None
+    except Exception:
+        return None
+
+
+def consolidate_singleton_folders(root: Folder, use_ai: bool = True) -> int:
+    """
+    Detect folders with exactly one bookmark, relocate that bookmark to the
+    best matching existing folder, and delete the now-empty folder.
+    Repeats until no singleton folders remain. Returns count of relocated bookmarks.
+    """
+    total_moved = 0
+    while True:
+        candidates = collect_singleton_folders(root)
+        if not candidates:
+            break
+        folder_names = _collect_folder_names(root)
+        moves_this_pass = 0
+        for parent, singleton_folder, bm in candidates:
+            dest_path: Optional[str] = None
+            if use_ai:
+                dest_path = _ai_best_folder_for_bookmark(bm, folder_names)
+            if dest_path is None:
+                dest_path = _suggest_folder_rules(bm)
+            if dest_path is None:
+                dest_path = "Unsorted Bookmarks"
+            dest = _get_or_create_nested(root, dest_path)
+            if dest is singleton_folder:
+                continue
+            _move_bookmark(singleton_folder, dest, bm)
+            _delete_empty_folder(parent, singleton_folder)
+            moves_this_pass += 1
+            total_moved += 1
+        _prune_empty_folders(root)
+        if moves_this_pass == 0:
+            break
+    return total_moved
+
+
+# ---------------------------------------------------------------------------
+# Alphabetical sort
+# ---------------------------------------------------------------------------
+
+
+def sort_tree(node: Folder) -> None:
+    """Sort children alphabetically: folders first (by name), then bookmarks (by title)."""
+    node.children.sort(
+        key=lambda c: (
+            isinstance(c, Bookmark),
+            (c.title if isinstance(c, Bookmark) else c.name).lower(),
+        )
+    )
+    for child in node.children:
+        if isinstance(child, Folder):
+            sort_tree(child)
 
 
 # ---------------------------------------------------------------------------
@@ -825,9 +1252,9 @@ FOOTER = "</DL><p>\n"
 def _esc(text: str) -> str:
     return (
         text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
     )
 
 
@@ -835,28 +1262,22 @@ def _write_tree(node, lines: list[str], indent: int = 0) -> None:
     pad = "    " * indent
     for child in node.children:
         if isinstance(child, Folder):
-            add_date = (
-                f' ADD_DATE="{child.add_date}"' if child.add_date else ""
-            )
+            add_date = f' ADD_DATE="{child.add_date}"' if child.add_date else ""
             last_mod = (
-                f' LAST_MODIFIED="{child.last_modified}"'
-                if child.last_modified else ""
+                f' LAST_MODIFIED="{child.last_modified}"' if child.last_modified else ""
             )
             lines.append(
-                f'{pad}<DT><H3{add_date}{last_mod}>'
-                f'{_esc(child.name)}</H3>\n'
+                f"{pad}<DT><H3{add_date}{last_mod}>" f"{_esc(child.name)}</H3>\n"
             )
             lines.append(f"{pad}<DL><p>\n")
             _write_tree(child, lines, indent + 1)
             lines.append(f"{pad}</DL><p>\n")
         elif isinstance(child, Bookmark):
-            add_date = (
-                f' ADD_DATE="{child.add_date}"' if child.add_date else ""
-            )
+            add_date = f' ADD_DATE="{child.add_date}"' if child.add_date else ""
             icon = f' ICON="{child.icon}"' if child.icon else ""
             lines.append(
                 f'{pad}<DT><A HREF="{_esc(child.href)}"'
-                f'{add_date}{icon}>{_esc(child.title)}</A>\n'
+                f"{add_date}{icon}>{_esc(child.title)}</A>\n"
             )
 
 
@@ -873,61 +1294,53 @@ def write_bookmarks(root: Folder, path: str) -> None:
 def main():
     parser = argparse.ArgumentParser(
         description="Clean and organize Microsoft Edge favorites "
-                    "(Netscape Bookmark HTML)."
+        "(Netscape Bookmark HTML)."
     )
     parser.add_argument(
-        "input", nargs='?', default=None,
+        "input",
+        nargs="?",
+        default=None,
         help="Path to the exported favorites HTML file "
-             "(defaults to sole .html file in current "
-             "directory if only one exists)"
+        "(defaults to sole .html file in current "
+        "directory if only one exists)",
     )
     parser.add_argument(
-        "--output", default="",
-        help="Output file path (default: auto-named)"
+        "--output", default="", help="Output file path (default: auto-named)"
     )
     parser.add_argument(
-        "--threads", type=int, default=20,
-        help="Concurrent URL check workers"
+        "--threads", type=int, default=20, help="Concurrent URL check workers"
     )
     parser.add_argument(
-        "--timeout", type=int, default=10,
-        help="Per-URL timeout (seconds)"
+        "--timeout", type=int, default=10, help="Per-URL timeout (seconds)"
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Report only; do not write output"
+        "--dry-run", action="store_true", help="Report only; do not write output"
     )
     parser.add_argument(
-        "--skip-check", action="store_true",
-        help="Skip URL reachability checks"
+        "--skip-check", action="store_true", help="Skip URL reachability checks"
     )
     parser.add_argument(
-        "--no-ai", action="store_true",
-        help="Skip AI folder assignment; use built-in keyword rules instead"
+        "--no-ai",
+        action="store_true",
+        help="Skip AI folder assignment; use built-in keyword rules instead",
     )
-    parser.add_argument(
-        "--log", default="bookmark_cleaner.log",
-        help="Log file path"
-    )
+    parser.add_argument("--log", default="bookmark_cleaner.log", help="Log file path")
     args = parser.parse_args()
 
     # ── Auto-detect HTML file if not specified ─────────────────────────────
     if args.input is None:
-        html_files = list(Path('.').glob('*.html'))
+        html_files = list(Path(".").glob("*.html"))
         if len(html_files) == 1:
             args.input = str(html_files[0])
             print(f"Auto-detected HTML file: {args.input}")
         elif len(html_files) == 0:
-            print(
-                "ERROR: No HTML files found in current directory.",
-                file=sys.stderr
-            )
+            print("ERROR: No HTML files found in current directory.", file=sys.stderr)
             print("Please specify the input file path.", file=sys.stderr)
             sys.exit(1)
         else:
             print(
                 "ERROR: Multiple HTML files found in current directory:",
-                file=sys.stderr
+                file=sys.stderr,
             )
             for f in html_files:
                 print(f"  - {f}", file=sys.stderr)
@@ -942,11 +1355,12 @@ def main():
             print(
                 "\n\n  Interrupted — finishing in-flight requests "
                 "and exiting cleanly …",
-                flush=True
+                flush=True,
             )
             stop_event.set()
 
     import signal
+
     signal.signal(signal.SIGINT, _handle_interrupt)
 
     # ── Logging setup ──────────────────────────────────────────────────────
@@ -972,8 +1386,8 @@ def main():
         output_path = Path(args.output).resolve()
     else:
         output_path = (
-            input_path.parent /
-            f"{input_path.stem}_cleaned_{timestamp}{input_path.suffix}"
+            input_path.parent
+            / f"{input_path.stem}_cleaned_{timestamp}{input_path.suffix}"
         )
 
     print(f"✓ Original file kept as-is: {input_path}")
@@ -1001,7 +1415,7 @@ def main():
             all_bookmarks,
             max_workers=args.threads,
             timeout=args.timeout,
-            stop_event=stop_event
+            stop_event=stop_event,
         )
         elapsed = time.time() - t0
 
@@ -1014,15 +1428,11 @@ def main():
 
         if stop_event.is_set():
             print(
-                "\n  Interrupted — saving results for checked "
-                "bookmarks and exiting."
+                "\n  Interrupted — saving results for checked " "bookmarks and exiting."
             )
             unchecked = [bm for bm in all_bookmarks if bm.alive is None]
             if unchecked:
-                print(
-                    f"  {len(unchecked)} unchecked bookmarks "
-                    "will be kept as-is."
-                )
+                print(f"  {len(unchecked)} unchecked bookmarks " "will be kept as-is.")
                 for bm in unchecked:
                     bm.alive = True  # preserve unchecked bookmarks
         if not args.dry_run:
@@ -1040,7 +1450,10 @@ def main():
 
     ai_map: Optional[dict[str, str]] = None
     if not args.no_ai and orphans:
-        ai_map = build_ai_folder_taxonomy(orphans)
+        existing_folders = _collect_folder_names(root)
+        ai_map = build_ai_folder_taxonomy(
+            orphans, existing_folders=existing_folders or None
+        )
 
     if not args.dry_run:
         moved = organize_unfoldered(root, orphans, ai_map=ai_map)
@@ -1049,11 +1462,32 @@ def main():
     else:
         for bm in orphans:
             fp = (
-                (ai_map or {}).get(bm.href) or
-                _suggest_folder_rules(bm) or
-                "Unsorted Bookmarks"
+                (ai_map or {}).get(bm.href)
+                or _suggest_folder_rules(bm)
+                or "Unsorted Bookmarks"
             )
             print(f"  [dry-run] '{bm.title[:60]}' → {fp}")
+
+    # ── Consolidate singleton folders ──────────────────────────────────────
+    if not args.dry_run:
+        print("\nConsolidating singleton folders …")
+        relocated = consolidate_singleton_folders(root, use_ai=not args.no_ai)
+        if relocated:
+            print(f"  Relocated {relocated} bookmark(s) from singleton folders.")
+        else:
+            print("  No singleton folders found.")
+    else:
+        singletons = collect_singleton_folders(root)
+        if singletons:
+            print(
+                f"\n[dry-run] {len(singletons)} singleton folder(s) would be consolidated:"
+            )
+            for _, sf, bm in singletons:
+                print(f"  '{sf.name}' → bookmark '{bm.title[:60]}' would be relocated")
+
+    # ── Sort all folders and bookmarks alphabetically ──────────────────────
+    if not args.dry_run:
+        sort_tree(root)
 
     # ── Write output ───────────────────────────────────────────────────────
     if not args.dry_run:
@@ -1062,19 +1496,10 @@ def main():
         _print_summary(root, removed_dead, output_path)
     else:
         print("\n[dry-run] No output file written.")
-    print(
-        f"\nDetailed log: {args.log}"
-    )
-    print(
-        "\nTo import into Edge:"
-    )
-    print(
-        "  Settings → Import browser data → Favorites or bookmarks HTML file"
-    )
-    print(
-        "  → Select: "
-        f"{output_path if not args.dry_run else '(output file)'}"
-    )
+    print(f"\nDetailed log: {args.log}")
+    print("\nTo import into Edge:")
+    print("  Settings → Import browser data → Favorites or bookmarks HTML file")
+    print("  → Select: " f"{output_path if not args.dry_run else '(output file)'}")
 
 
 def _count_folders(node) -> int:
