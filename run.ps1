@@ -54,10 +54,32 @@ Write-Host "Activating virtual environment..." -ForegroundColor Yellow
 # ── Install/upgrade dependencies ──────────────────────────────────────────
 Write-Host "Installing dependencies..." -ForegroundColor Yellow
 # Note: pip self-upgrade is skipped — it can fail inside a venv on Python 3.14+
-pip install requests openai python-dotenv --quiet
+pip install requests python-dotenv --quiet
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to install dependencies." -ForegroundColor Red
     exit 1
+}
+
+# Install AI provider SDKs if their API keys are set
+$EnvFile = Join-Path $ScriptDir ".env"
+if (Test-Path $EnvFile) {
+    $EnvContent = Get-Content $EnvFile -Raw
+    if ($EnvContent -match "OPENAI_API_KEY=") {
+        Write-Host "Installing OpenAI SDK..." -ForegroundColor Yellow
+        pip install openai --quiet
+    }
+    if ($EnvContent -match "ANTHROPIC_API_KEY=") {
+        Write-Host "Installing Anthropic SDK..." -ForegroundColor Yellow
+        pip install anthropic --quiet
+    }
+    if ($EnvContent -match "GEMINI_API_KEY=" -or $EnvContent -match "GOOGLE_API_KEY=") {
+        Write-Host "Installing Google GenAI SDK..." -ForegroundColor Yellow
+        pip install google-genai --quiet
+    }
+    if ($EnvContent -match "OPENROUTER_API_KEY=") {
+        Write-Host "Installing OpenRouter SDK..." -ForegroundColor Yellow
+        pip install openrouter --quiet
+    }
 }
 Write-Host "Dependencies ready." -ForegroundColor Green
 

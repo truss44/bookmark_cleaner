@@ -1,0 +1,13 @@
+requests>=2.31.0
+urllib3>=2.0.0
+python-dotenv>=1.0.0
+
+# AI providers (install one based on which API key you set in .env)
+# For OpenAI:
+# openai>=1.0.0
+# For Anthropic/Claude:
+# anthropic>=0.40.0
+# For Google Gemini:
+# google-genai>=1.0.0
+# For OpenRouter:
+# openrouter>=0.1.0

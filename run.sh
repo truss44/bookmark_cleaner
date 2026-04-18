@@ -51,7 +51,27 @@ source "$VENV_DIR/bin/activate"
 # ── Install/upgrade dependencies ──────────────────────────────────────────
 echo "Installing dependencies..."
 # Note: pip self-upgrade is skipped — it can fail inside a venv on newer Python versions
-pip install requests openai python-dotenv --quiet
+pip install requests python-dotenv --quiet
+
+# Install AI provider SDKs if their API keys are set
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    if grep -q "OPENAI_API_KEY=" "$SCRIPT_DIR/.env"; then
+        echo "Installing OpenAI SDK..."
+        pip install openai --quiet
+    fi
+    if grep -q "ANTHROPIC_API_KEY=" "$SCRIPT_DIR/.env"; then
+        echo "Installing Anthropic SDK..."
+        pip install anthropic --quiet
+    fi
+    if grep -q "GEMINI_API_KEY=" "$SCRIPT_DIR/.env" || grep -q "GOOGLE_API_KEY=" "$SCRIPT_DIR/.env"; then
+        echo "Installing Google GenAI SDK..."
+        pip install google-genai --quiet
+    fi
+    if grep -q "OPENROUTER_API_KEY=" "$SCRIPT_DIR/.env"; then
+        echo "Installing OpenRouter SDK..."
+        pip install openrouter --quiet
+    fi
+fi
 echo "Dependencies ready."
 
 # ── Prompt for input file if not provided ─────────────────────────────────

@@ -16,8 +16,20 @@ Options:
     --timeout N         Per-request timeout in seconds (default: 10)
     --dry-run           Report only; do not write output file
     --skip-check        Skip URL reachability checks (organize only)
+    --no-ai             Skip AI folder assignment; use built-in keyword
+                     rules instead
     --log FILE      Write detailed log to FILE
                      (default: bookmark_cleaner.log)
+
+AI Providers (set via environment variables):
+    - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
+             default: gpt-5.4-mini)
+    - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
+                 default: claude-haiku-4-5)
+    - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
+             default: gemini-3.1-flash-lite-preview)
+    - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
+                default: openai/gpt-5.4-mini)
 
 Output:
     - <backup>_YYYYMMDD_HHMMSS.html   — original file, untouched
@@ -50,6 +62,22 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+# Optional AI provider SDKs - imported only if available
+try:
+    from anthropic import Anthropic
+except ImportError:
+    Anthropic = None
+
+try:
+    from google import genai
+except ImportError:
+    genai = None
+
+try:
+    from openrouter import OpenRouter
+except ImportError:
+    OpenRouter = None
 
 # Load .env file if present (must come before any os.getenv calls)
 load_dotenv()
@@ -316,27 +344,62 @@ def check_all_bookmarks(
     print(flush=True)  # newline after progress bar finishes
 
 
-# Organizer — AI-based folder assignment via OpenAI
+# Organizer — AI-based folder assignment via OpenAI, Anthropic,
+# Gemini, or OpenRouter
 # ---------------------------------------------------------------------------
 
 def build_ai_folder_taxonomy(bookmarks: list[Bookmark]) -> dict[str, str]:
     """
-    Send all surviving bookmark titles + URLs to gpt-5.4-mini in a single
+    Send all surviving bookmark titles + URLs to an AI model in a single
     prompt. Returns a dict mapping each bookmark href to its suggested
     folder path (e.g. "Software Engineering/Frontend" or "Health & Fitness").
 
-    Falls back to rule-based assignment if the API call fails.
+    Supports multiple AI providers via environment variables:
+    - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
+             default: gpt-5.4-mini)
+    - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
+                 default: claude-haiku-4-5)
+    - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
+             default: gemini-3.1-flash-lite-preview)
+    - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
+                default: openai/gpt-5.4-mini)
+
+    Falls back to rule-based assignment if no API key is set
+    or the API call fails.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    # Check for available API keys in priority order
+    provider = None
+    api_key = None
+    model = None
+
+    # Try OpenAI first
+    if os.getenv("OPENAI_API_KEY"):
+        provider = "openai"
+        api_key = os.getenv("OPENAI_API_KEY")
+        model = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
+    # Try Anthropic
+    elif Anthropic and os.getenv("ANTHROPIC_API_KEY"):
+        provider = "anthropic"
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
+    # Try Gemini
+    elif genai and (os.getenv("GEMINI_API_KEY")
+                    or os.getenv("GOOGLE_API_KEY")):
+        provider = "gemini"
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
+    # Try OpenRouter
+    elif OpenRouter and os.getenv("OPENROUTER_API_KEY"):
+        provider = "openrouter"
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        model = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-mini")
+    else:
         print(
-            "  WARNING: OPENAI_API_KEY not set — "
+            "  WARNING: No AI API key set (OPENAI_API_KEY, "
+            "ANTHROPIC_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY) — "
             "falling back to rule-based organizer."
         )
         return {}
-
-    model = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
-    client = OpenAI(api_key=api_key)
 
     # Build a compact list of bookmarks for the prompt
     bm_list = [
@@ -371,13 +434,42 @@ Bookmarks:
 {json.dumps(bm_list, ensure_ascii=False)}
 """
 
-    print(f"  Sending bookmark list to {model} for folder taxonomy …")
+    print(f"  Sending bookmark list to {provider}/{model} "
+          f"for folder taxonomy …")
     try:
-        response = client.responses.create(
-            model=model,
-            input=prompt,
-        )
-        raw = response.output_text.strip()
+        raw = ""
+
+        if provider == "openai":
+            client = OpenAI(api_key=api_key)
+            response = client.responses.create(
+                model=model,
+                input=prompt,
+            )
+            raw = response.output_text.strip()
+        elif provider == "anthropic":
+            client = Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=model,
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            # Anthropic returns content blocks
+            raw = response.content[0].text.strip()
+        elif provider == "gemini":
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt
+            )
+            raw = response.text.strip()
+        elif provider == "openrouter":
+            with OpenRouter(api_key=api_key) as client:
+                response = client.chat.send(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                raw = response.choices[0].message.content.strip()
+
         # Strip markdown fences if model adds them
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1]
