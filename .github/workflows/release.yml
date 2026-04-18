@@ -51,13 +51,13 @@ jobs:
 
       - name: Run python-semantic-release
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           semantic-release -v version --push --vcs-release
 
       - name: Update 'latest' tag to most recent release
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           git fetch --tags --force
