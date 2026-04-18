@@ -18,14 +18,14 @@ A Python command-line tool that parses your exported Edge favorites, removes dea
 ## Requirements
 
 - Python 3.10 or higher
-- `requests`, `openai`, and `python-dotenv` libraries
-- An OpenAI API key (free to create at [platform.openai.com](https://platform.openai.com/api-keys))
+- `requests` and `python-dotenv` libraries
+- An API key from one of the following AI providers:
+  - **OpenAI** (free to create at [platform.openai.com](https://platform.openai.com/api-keys))
+  - **Anthropic/Claude** (free to create at [console.anthropic.com](https://console.anthropic.com/settings/keys))
+  - **Google Gemini** (free to create at [aistudio.google.com](https://aistudio.google.com/app/apikey))
+  - **OpenRouter** (free to create at [openrouter.ai](https://openrouter.ai/settings/keys))
 
-Install the dependencies:
-
-```bash
-pip install requests openai python-dotenv
-```
+The run scripts will automatically install the appropriate AI SDK based on which API key you configure.
 
 ---
 
@@ -33,7 +33,7 @@ pip install requests openai python-dotenv
 
 ### API Key (.env)
 
-The script uses OpenAI to intelligently assign your bookmarks to folders. To enable this, you need an OpenAI API key.
+The script uses AI to intelligently assign your bookmarks to folders. Choose one of the following providers and configure your API key.
 
 1. Copy the example env file:
 
@@ -45,17 +45,43 @@ The script uses OpenAI to intelligently assign your bookmarks to folders. To ena
    cp .env.example .env
    ```
 
-2. Open `.env` and configure your settings:
+2. Open `.env` and configure your chosen provider (uncomment the relevant section):
+
+   **Option 1: OpenAI**
 
    ```
    OPENAI_API_KEY=sk-proj-...
    OPENAI_MODEL=gpt-5.4-mini
    ```
 
-   - `OPENAI_API_KEY`: Your OpenAI API key (required)
-   - `OPENAI_MODEL`: The model to use for folder assignment (optional, defaults to `gpt-5.4-mini`). You can use any OpenAI model name such as `gpt-4o`, `gpt-4o-mini`, `o1-mini`, etc.
+   **Option 2: Anthropic/Claude**
 
-3. The run scripts (`run.ps1` / `run.sh`) and the Python script itself will load `.env` automatically via `python-dotenv`.
+   ```
+   ANTHROPIC_API_KEY=sk-ant-...
+   ANTHROPIC_MODEL=claude-haiku-4-5
+   ```
+
+   **Option 3: Google Gemini**
+
+   ```
+   GEMINI_API_KEY=AIza...
+   GEMINI_MODEL=gemini-3.1-flash-lite-preview
+   ```
+
+   **Option 4: OpenRouter**
+
+   ```
+   OPENROUTER_API_KEY=sk-or-...
+   OPENROUTER_MODEL=openai/gpt-5.4-mini
+   ```
+
+   Configuration details:
+   - **OpenAI**: Model defaults to `gpt-5.4-mini`. You can use any OpenAI model such as `gpt-4o`, `gpt-4o-mini`, `o1-mini`, etc.
+   - **Anthropic**: Model defaults to `claude-haiku-4-5`. You can use any Claude model.
+   - **Gemini**: Model defaults to `gemini-3.1-flash-lite-preview`. You can also use `GOOGLE_API_KEY` as an alternative to `GEMINI_API_KEY`.
+   - **OpenRouter**: Model defaults to `openai/gpt-5.4-mini`. OpenRouter provides access to hundreds of models from various providers via a single API. See [openrouter.ai/models](https://openrouter.ai/models) for available models.
+
+3. The run scripts (`run.ps1` / `run.sh`) will automatically install the appropriate AI SDK based on which API key you configure, and the Python script will load `.env` automatically via `python-dotenv`.
 
 > If no API key is found, the script falls back to built-in keyword-based folder rules automatically — no crash, no interruption.
 
@@ -224,7 +250,14 @@ Only root-level (unfoldered) bookmarks are organized — your existing folder st
 
 ### AI-Powered Organization (default)
 
-After URL checking is complete, all surviving unfoldered bookmarks are sent to the OpenAI model specified in your `.env` file (defaults to `gpt-5.4-mini`) in a single API call. The model reviews every bookmark title and URL together, decides on a logical folder taxonomy tailored to your actual collection, and assigns each bookmark to a folder path.
+After URL checking is complete, all surviving unfoldered bookmarks are sent to the AI model specified in your `.env` file in a single API call. The model reviews every bookmark title and URL together, decides on a logical folder taxonomy tailored to your actual collection, and assigns each bookmark to a folder path.
+
+The script automatically detects which AI provider you've configured (OpenAI, Anthropic, Gemini, or OpenRouter) and uses the appropriate API. Default models:
+
+- OpenAI: `gpt-5.4-mini`
+- Anthropic: `claude-haiku-4-5`
+- Gemini: `gemini-3.1-flash-lite-preview`
+- OpenRouter: `openai/gpt-5.4-mini` (access to hundreds of models via one API)
 
 The AI creates folders and subfolders appropriate to what it sees — for example:
 
@@ -238,7 +271,7 @@ Because the model sees the whole collection at once, it can create folders that 
 
 ### Rule-Based Fallback
 
-If no `OPENAI_API_KEY` is set, the API call fails, or you pass `--no-ai`, the script falls back to a built-in keyword matcher. Each bookmark's title and URL are checked against a priority-ordered list of `(folder_path, [keywords])` rules — the first match wins.
+If no API key is set (OpenAI, Anthropic, Gemini, or OpenRouter), the API call fails, or you pass `--no-ai`, the script falls back to a built-in keyword matcher. Each bookmark's title and URL are checked against a priority-ordered list of `(folder_path, [keywords])` rules — the first match wins.
 
 You can customize these rules by editing the `TOPIC_RULES` list near the top of `bookmark_cleaner.py`:
 
