@@ -52,7 +52,6 @@ jobs:
       - name: Run python-semantic-release
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           semantic-release -v version --push --vcs-release
 
