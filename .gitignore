@@ -11,6 +11,9 @@ __pycache__/
 *.py[cod]
 *.pyo
 
+# Cache directories
+*_cache/
+
 # Logs
 *.log
 
