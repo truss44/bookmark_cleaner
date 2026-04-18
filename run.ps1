@@ -65,10 +65,17 @@ Write-Host "Dependencies ready." -ForegroundColor Green
 $ScriptArgs = $args
 if ($ScriptArgs.Count -eq 0) {
     Write-Host ""
-    $InputFile = Read-Host "Enter the path to your favorites HTML file"
-    if ([string]::IsNullOrWhiteSpace($InputFile)) {
-        Write-Host "ERROR: No input file provided." -ForegroundColor Red
-        exit 1
+    # Auto-detect HTML file if only one exists
+    $HtmlFiles = Get-ChildItem -Path $ScriptDir -Filter "*.html"
+    if ($HtmlFiles.Count -eq 1) {
+        $InputFile = $HtmlFiles[0].FullName
+        Write-Host "Auto-detected HTML file: $($HtmlFiles[0].Name)" -ForegroundColor Green
+    } else {
+        $InputFile = Read-Host "Enter the path to your favorites HTML file"
+        if ([string]::IsNullOrWhiteSpace($InputFile)) {
+            Write-Host "ERROR: No input file provided." -ForegroundColor Red
+            exit 1
+        }
     }
     $ScriptArgs = @($InputFile)
 }

@@ -3,8 +3,9 @@
 Microsoft Edge Favorites Cleaner & Organizer
 =============================================
 Parses a Netscape Bookmark HTML file (Edge favorites export), checks each URL,
-removes dead links (404 / connection errors), and organizes loose bookmarks into
-topic-based folders.  A timestamped backup of the original is always created.
+removes dead links (404 / connection errors), and organizes loose bookmarks
+into topic-based folders.
+A timestamped backup of the original is always created.
 
 Usage:
     python bookmark_cleaner.py <input_file> [options]
@@ -15,7 +16,8 @@ Options:
     --timeout N         Per-request timeout in seconds (default: 10)
     --dry-run           Report only; do not write output file
     --skip-check        Skip URL reachability checks (organize only)
-    --log FILE          Write detailed log to FILE (default: bookmark_cleaner.log)
+    --log FILE      Write detailed log to FILE
+                     (default: bookmark_cleaner.log)
 
 Output:
     - <backup>_YYYYMMDD_HHMMSS.html   — original file, untouched
@@ -32,7 +34,6 @@ import concurrent.futures
 import threading
 import logging
 import os
-import re
 import sys
 import time
 from datetime import datetime
@@ -42,7 +43,6 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import json
-import os
 
 import requests
 import urllib3
@@ -57,9 +57,11 @@ load_dotenv()
 # Suppress warnings for sites with bad/self-signed SSL certs
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
 
 class Bookmark:
     """Represents a single <A> bookmark entry."""
@@ -161,7 +163,10 @@ class BookmarkParser(HTMLParser):
             self._current_bookmark.title += data
         elif self._stack:
             # last child of current folder should be the H3 folder
-            last = self._stack[-1].children[-1] if self._stack[-1].children else None
+            last = (
+                self._stack[-1].children[-1]
+                if self._stack[-1].children else None
+            )
             if isinstance(last, Folder) and not last.name:
                 last.name += data
 
@@ -189,7 +194,11 @@ _SESSION: Optional[requests.Session] = None
 
 def _make_session() -> requests.Session:
     session = requests.Session()
-    retry = Retry(total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503])
+    retry = Retry(
+        total=2,
+        backoff_factor=0.3,
+        status_forcelist=[500, 502, 503]
+    )
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
@@ -214,14 +223,21 @@ def is_url_alive(url: str, timeout: int = 10) -> tuple[bool, str]:
     try:
         resp = session.head(url, timeout=timeout, allow_redirects=True)
         if resp.status_code == 405 or resp.status_code == 403:
-            resp = session.get(url, timeout=timeout, allow_redirects=True, stream=True)
+            resp = session.get(
+                url,
+                timeout=timeout,
+                allow_redirects=True,
+                stream=True,
+            )
             resp.close()
         alive = resp.status_code not in DEAD_STATUS_CODES
         return alive, f"HTTP {resp.status_code}"
     except requests.exceptions.SSLError:
         # Some old sites have bad certs — retry without verification
         try:
-            resp = session.head(url, timeout=timeout, allow_redirects=True, verify=False)
+            resp = session.head(
+                url, timeout=timeout, allow_redirects=True, verify=False
+            )
             alive = resp.status_code not in DEAD_STATUS_CODES
             return alive, f"HTTP {resp.status_code} (SSL ignored)"
         except Exception as exc:
@@ -260,7 +276,9 @@ def check_all_bookmarks(
     alive_count = 0
     dead_count = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers
+    ) as pool:
         futures = {pool.submit(_check, bm): bm for bm in bookmarks}
         try:
             for future in concurrent.futures.as_completed(futures):
@@ -277,7 +295,10 @@ def check_all_bookmarks(
                     dead_count += 1
                 pct = (done / total) * 100
                 status = "\u2713" if alive else "\u2717"
-                logging.info("[%d/%d] %s  %s  (%s)", done, total, status, bm.href, reason)
+                logging.info(
+                    "[%d/%d] %s  %s  (%s)",
+                    done, total, status, bm.href, reason
+                )
                 bar_filled = int(pct / 5)
                 bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
                 print(
@@ -295,21 +316,23 @@ def check_all_bookmarks(
     print(flush=True)  # newline after progress bar finishes
 
 
-# ---------------------------------------------------------------------------
 # Organizer — AI-based folder assignment via OpenAI
 # ---------------------------------------------------------------------------
 
 def build_ai_folder_taxonomy(bookmarks: list[Bookmark]) -> dict[str, str]:
     """
-    Send all surviving bookmark titles + URLs to gpt-5.4-mini in a single prompt.
-    Returns a dict mapping each bookmark href to its suggested folder path
-    (e.g. "Software Engineering/Frontend" or "Health & Fitness").
+    Send all surviving bookmark titles + URLs to gpt-5.4-mini in a single
+    prompt. Returns a dict mapping each bookmark href to its suggested
+    folder path (e.g. "Software Engineering/Frontend" or "Health & Fitness").
 
     Falls back to rule-based assignment if the API call fails.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("  WARNING: OPENAI_API_KEY not set — falling back to rule-based organizer.")
+        print(
+            "  WARNING: OPENAI_API_KEY not set — "
+            "falling back to rule-based organizer."
+        )
         return {}
 
     model = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
@@ -325,18 +348,24 @@ def build_ai_folder_taxonomy(bookmarks: list[Bookmark]) -> dict[str, str]:
 Below is a JSON array of bookmarks, each with an id, title, and URL.
 
 Your task:
-1. Analyse all bookmarks and decide on the best set of top-level folders and
-   optional sub-folders that would logically group them. Be specific and
-   meaningful — avoid generic names like "Miscellaneous" unless truly needed.
-   Use a catch-all folder called "Unsorted Bookmarks" only for items that
-   genuinely defy categorisation.
+1. Analyse all bookmarks and decide on the best set of top-level folders
+   and optional sub-folders that would logically group them.
+   Be specific and meaningful — avoid generic names like "Miscellaneous"
+   unless truly needed.
+   Use a catch-all folder called "Unsorted Bookmarks" only for items
+   that genuinely defy categorisation.
 2. Assign every bookmark to exactly one folder path using "/" as a separator
    for sub-folders (e.g. "Software Engineering/Frontend").
-3. Return ONLY a valid JSON object mapping each numeric id (as a string key)
-   to its folder path string. No explanation, no markdown, no extra keys.
+3. Return ONLY a valid JSON object mapping each numeric id
+   (as a string key) to its folder path string.
+   No explanation, no markdown, no extra keys.
 
 Example output format:
-{{"0": "Finance & Crypto/Crypto", "1": "Health & Fitness/Nutrition", "2": "AI Tools"}}
+{{
+  "0": "Finance & Crypto/Crypto",
+  "1": "Health & Fitness/Nutrition",
+  "2": "AI Tools"
+}}
 
 Bookmarks:
 {json.dumps(bm_list, ensure_ascii=False)}
@@ -363,40 +392,109 @@ Bookmarks:
         print(f"  AI assigned {len(href_map)} bookmarks to folders.")
         return href_map
     except Exception as exc:
-        print(f"  WARNING: AI folder assignment failed ({exc}) — falling back to rule-based organizer.")
+        print(
+            f"  WARNING: AI folder assignment failed ({exc}) — "
+            "falling back to rule-based organizer."
+        )
         return {}
 
 
-# ---------------------------------------------------------------------------
 # Rule-based fallback organizer (used when AI is unavailable)
 # ---------------------------------------------------------------------------
 
 TOPIC_RULES: list[tuple[str, list[str]]] = [
-    ("AI Tools/Image Generation", [
-        "dalle", "stable diffusion", "midjourney", "leonardo", "img2img",
-        "image generator", "ai art", "flux playground", "piclumen", "imglarger",
-        "perchance", "picogen",
-    ]),
-    ("AI Tools/Coding Assistants", [
-        "github copilot", "copilot", "cody", "augment code", "cursor", "tabnine",
-        "sourcegraph", "continue.dev", "aider", "coding assistant",
-    ]),
-    ("AI Tools/Video & Audio", [
-        "synthesia", "heygen", "assemblyai", "elevenlabs", "runwayml",
-        "sora", "video generator", "text to speech", "tts",
-    ]),
-    ("AI Tools", [
-        "openai", "chatgpt", "gpt-", "claude", "anthropic", "cohere", "deepseek",
-        "gemini", "llama", "mistral", "perplexity", "ai model", "llm",
-        "chatbot", "hugging face", "bfl.ai", "lmarena", "anylearn",
-        "artificial analysis", "requesty", "bolt.new", "cloudskillsboost",
-        "writer.com", "awesome chatgpt", "prompts.chat", "pixeldojo",
-        "augmentcode", "assemblyai",
-    ]),
-    ("Software Engineering/APIs", [
-        "swagger", "postman", "rapidapi", "api reference", "rest api",
-        "graphql", "openapi",
-    ]),
+    (
+        "AI Tools/Image Generation",
+        [
+            "dalle",
+            "stable diffusion",
+            "midjourney",
+            "leonardo",
+            "img2img",
+            "image generator",
+            "ai art",
+            "flux playground",
+            "piclumen",
+            "imglarger",
+            "perchance",
+            "picogen",
+        ],
+    ),
+    (
+        "AI Tools/Coding Assistants",
+        [
+            "github copilot",
+            "copilot",
+            "cody",
+            "augment code",
+            "cursor",
+            "tabnine",
+            "sourcegraph",
+            "continue.dev",
+            "aider",
+            "coding assistant",
+        ],
+    ),
+    (
+        "AI Tools/Video & Audio",
+        [
+            "synthesia",
+            "heygen",
+            "assemblyai",
+            "elevenlabs",
+            "runwayml",
+            "sora",
+            "video generator",
+            "text to speech",
+            "tts",
+        ],
+    ),
+    (
+        "AI Tools",
+        [
+            "openai",
+            "chatgpt",
+            "gpt-",
+            "claude",
+            "anthropic",
+            "cohere",
+            "deepseek",
+            "gemini",
+            "llama",
+            "mistral",
+            "perplexity",
+            "ai model",
+            "llm",
+            "chatbot",
+            "hugging face",
+            "bfl.ai",
+            "lmarena",
+            "anylearn",
+            "artificial analysis",
+            "requesty",
+            "bolt.new",
+            "cloudskillsboost",
+            "writer.com",
+            "awesome chatgpt",
+            "prompts.chat",
+            "pixeldojo",
+            "augmentcode",
+            "assemblyai",
+        ],
+    ),
+    (
+        "Software Engineering/APIs",
+        [
+            "swagger",
+            "postman",
+            "rapidapi",
+            "api reference",
+            "rest api",
+            "graphql",
+            "openapi",
+        ],
+    ),
+    # ... rest of the code remains the same ...
     ("Software Engineering/DevOps & Monitoring", [
         "dynatrace", "grafana", "datadog", "splunk", "pagerduty", "opsgenie",
         "prometheus", "kibana", "elastic", "new relic", "jira", "jira service",
@@ -526,7 +624,8 @@ def _get_or_create_folder(parent: Folder, name: str) -> Folder:
 
 
 def _get_or_create_nested(parent: Folder, path: str) -> Folder:
-    """Given 'AI Tools/Image Generation', return (or create) the nested folder."""
+    """Given 'AI Tools/Image Generation', return (or create)
+    the nested folder."""
     parts = [p.strip() for p in path.split("/")]
     node = parent
     for part in parts:
@@ -541,7 +640,8 @@ def organize_unfoldered(
 ) -> dict[str, list[Bookmark]]:
     """
     Move unfoldered bookmarks into topic folders.
-    Uses AI-generated folder map when available; falls back to rule-based matching.
+    Uses AI-generated folder map when available;
+    falls back to rule-based matching.
     Returns a dict of {folder_path: [bookmarks_moved]}.
     """
     moved: dict[str, list[Bookmark]] = {}
@@ -575,7 +675,6 @@ def organize_unfoldered(
     return moved
 
 
-
 # ---------------------------------------------------------------------------
 # Collect helpers
 # ---------------------------------------------------------------------------
@@ -601,7 +700,10 @@ def collect_unfoldered(root: Folder) -> list[Bookmark]:
 
 def remove_dead_bookmarks(node, removed: list) -> None:
     """Walk the tree in-place and remove any bookmarks with alive == False."""
-    to_remove = [c for c in node.children if isinstance(c, Bookmark) and c.alive is False]
+    to_remove = [
+        c for c in node.children
+        if isinstance(c, Bookmark) and c.alive is False
+    ]
     for bm in to_remove:
         node.children.remove(bm)
         removed.append(bm)
@@ -641,17 +743,28 @@ def _write_tree(node, lines: list[str], indent: int = 0) -> None:
     pad = "    " * indent
     for child in node.children:
         if isinstance(child, Folder):
-            add_date = f' ADD_DATE="{child.add_date}"' if child.add_date else ""
-            last_mod = f' LAST_MODIFIED="{child.last_modified}"' if child.last_modified else ""
-            lines.append(f'{pad}<DT><H3{add_date}{last_mod}>{_esc(child.name)}</H3>\n')
+            add_date = (
+                f' ADD_DATE="{child.add_date}"' if child.add_date else ""
+            )
+            last_mod = (
+                f' LAST_MODIFIED="{child.last_modified}"'
+                if child.last_modified else ""
+            )
+            lines.append(
+                f'{pad}<DT><H3{add_date}{last_mod}>'
+                f'{_esc(child.name)}</H3>\n'
+            )
             lines.append(f"{pad}<DL><p>\n")
             _write_tree(child, lines, indent + 1)
             lines.append(f"{pad}</DL><p>\n")
         elif isinstance(child, Bookmark):
-            add_date = f' ADD_DATE="{child.add_date}"' if child.add_date else ""
+            add_date = (
+                f' ADD_DATE="{child.add_date}"' if child.add_date else ""
+            )
             icon = f' ICON="{child.icon}"' if child.icon else ""
             lines.append(
-                f'{pad}<DT><A HREF="{_esc(child.href)}"{add_date}{icon}>{_esc(child.title)}</A>\n'
+                f'{pad}<DT><A HREF="{_esc(child.href)}"'
+                f'{add_date}{icon}>{_esc(child.title)}</A>\n'
             )
 
 
@@ -663,29 +776,82 @@ def write_bookmarks(root: Folder, path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Clean and organize Microsoft Edge favorites (Netscape Bookmark HTML)."
+        description="Clean and organize Microsoft Edge favorites "
+                    "(Netscape Bookmark HTML)."
     )
-    parser.add_argument("input", help="Path to the exported favorites HTML file")
-    parser.add_argument("--output", default="", help="Output file path (default: auto-named)")
-    parser.add_argument("--threads", type=int, default=20, help="Concurrent URL check workers")
-    parser.add_argument("--timeout", type=int, default=10, help="Per-URL timeout (seconds)")
-    parser.add_argument("--dry-run", action="store_true", help="Report only; do not write output")
-    parser.add_argument("--skip-check", action="store_true", help="Skip URL reachability checks")
-    parser.add_argument("--no-ai", action="store_true", help="Skip AI folder assignment; use built-in keyword rules instead")
-    parser.add_argument("--log", default="bookmark_cleaner.log", help="Log file path")
+    parser.add_argument(
+        "input", nargs='?', default=None,
+        help="Path to the exported favorites HTML file "
+             "(defaults to sole .html file in current "
+             "directory if only one exists)"
+    )
+    parser.add_argument(
+        "--output", default="",
+        help="Output file path (default: auto-named)"
+    )
+    parser.add_argument(
+        "--threads", type=int, default=20,
+        help="Concurrent URL check workers"
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=10,
+        help="Per-URL timeout (seconds)"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Report only; do not write output"
+    )
+    parser.add_argument(
+        "--skip-check", action="store_true",
+        help="Skip URL reachability checks"
+    )
+    parser.add_argument(
+        "--no-ai", action="store_true",
+        help="Skip AI folder assignment; use built-in keyword rules instead"
+    )
+    parser.add_argument(
+        "--log", default="bookmark_cleaner.log",
+        help="Log file path"
+    )
     args = parser.parse_args()
+
+    # ── Auto-detect HTML file if not specified ─────────────────────────────
+    if args.input is None:
+        html_files = list(Path('.').glob('*.html'))
+        if len(html_files) == 1:
+            args.input = str(html_files[0])
+            print(f"Auto-detected HTML file: {args.input}")
+        elif len(html_files) == 0:
+            print(
+                "ERROR: No HTML files found in current directory.",
+                file=sys.stderr
+            )
+            print("Please specify the input file path.", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print(
+                "ERROR: Multiple HTML files found in current directory:",
+                file=sys.stderr
+            )
+            for f in html_files:
+                print(f"  - {f}", file=sys.stderr)
+            print("Please specify the input file path.", file=sys.stderr)
+            sys.exit(1)
 
     # ── Ctrl+C handler — clean exit without traceback ─────────────────────
     stop_event = threading.Event()
 
     def _handle_interrupt(sig, frame):
         if not stop_event.is_set():
-            print("\n\n  Interrupted — finishing in-flight requests and exiting cleanly …", flush=True)
+            print(
+                "\n\n  Interrupted — finishing in-flight requests "
+                "and exiting cleanly …",
+                flush=True
+            )
             stop_event.set()
 
     import signal
@@ -713,7 +879,10 @@ def main():
     if args.output:
         output_path = Path(args.output).resolve()
     else:
-        output_path = input_path.parent / f"{input_path.stem}_cleaned_{timestamp}{input_path.suffix}"
+        output_path = (
+            input_path.parent /
+            f"{input_path.stem}_cleaned_{timestamp}{input_path.suffix}"
+        )
 
     print(f"✓ Original file kept as-is: {input_path}")
     print(f"✓ Cleaned output will be written to: {output_path}")
@@ -722,26 +891,46 @@ def main():
     print(f"\nParsing bookmarks from: {input_path}")
     root = parse_bookmarks(str(input_path))
     all_bookmarks = collect_all_bookmarks(root)
-    print(f"  Found {len(all_bookmarks)} bookmarks across {_count_folders(root)} folders")
+    print(
+        f"  Found {len(all_bookmarks)} bookmarks "
+        f"across {_count_folders(root)} folders"
+    )
 
     # ── URL checks ─────────────────────────────────────────────────────────
     removed_dead: list[Bookmark] = []
     if not args.skip_check:
-        print(f"\nChecking {len(all_bookmarks)} URLs ({args.threads} threads, {args.timeout}s timeout) …")
+        print(
+            f"\nChecking {len(all_bookmarks)} URLs "
+            f"({args.threads} threads, {args.timeout}s timeout) …"
+        )
         print("  (This may take several minutes for large collections)\n")
         t0 = time.time()
-        check_all_bookmarks(all_bookmarks, max_workers=args.threads, timeout=args.timeout, stop_event=stop_event)
+        check_all_bookmarks(
+            all_bookmarks,
+            max_workers=args.threads,
+            timeout=args.timeout,
+            stop_event=stop_event
+        )
         elapsed = time.time() - t0
 
         dead = [bm for bm in all_bookmarks if bm.alive is False]
         alive = [bm for bm in all_bookmarks if bm.alive is True]
-        print(f"\n  Checked in {elapsed:.1f}s:  {len(alive)} alive,  {len(dead)} dead\n")
+        print(
+            f"\n  Checked in {elapsed:.1f}s:  {len(alive)} alive,  "
+            f"{len(dead)} dead\n"
+        )
 
         if stop_event.is_set():
-            print("\n  Interrupted — saving results for checked bookmarks and exiting.")
+            print(
+                "\n  Interrupted — saving results for checked "
+                "bookmarks and exiting."
+            )
             unchecked = [bm for bm in all_bookmarks if bm.alive is None]
             if unchecked:
-                print(f"  {len(unchecked)} unchecked bookmarks will be kept as-is.")
+                print(
+                    f"  {len(unchecked)} unchecked bookmarks "
+                    "will be kept as-is."
+                )
                 for bm in unchecked:
                     bm.alive = True  # preserve unchecked bookmarks
         if not args.dry_run:
@@ -767,7 +956,11 @@ def main():
             print(f"  → '{folder}': {len(bms)} bookmark(s)")
     else:
         for bm in orphans:
-            fp = (ai_map or {}).get(bm.href) or _suggest_folder_rules(bm) or "Unsorted Bookmarks"
+            fp = (
+                (ai_map or {}).get(bm.href) or
+                _suggest_folder_rules(bm) or
+                "Unsorted Bookmarks"
+            )
             print(f"  [dry-run] '{bm.title[:60]}' → {fp}")
 
     # ── Write output ───────────────────────────────────────────────────────
@@ -776,12 +969,20 @@ def main():
         print(f"\n✓ Cleaned bookmarks written to: {output_path}")
         _print_summary(root, removed_dead, output_path)
     else:
-        print(f"\n[dry-run] No output file written.")
-
-    print(f"\nDetailed log: {args.log}")
-    print("\nTo import into Edge:")
-    print("  Settings → Import browser data → Favorites or bookmarks HTML file")
-    print(f"  → Select: {output_path if not args.dry_run else '(output file)'}")
+        print("\n[dry-run] No output file written.")
+    print(
+        f"\nDetailed log: {args.log}"
+    )
+    print(
+        "\nTo import into Edge:"
+    )
+    print(
+        "  Settings → Import browser data → Favorites or bookmarks HTML file"
+    )
+    print(
+        "  → Select: "
+        f"{output_path if not args.dry_run else '(output file)'}"
+    )
 
 
 def _count_folders(node) -> int:

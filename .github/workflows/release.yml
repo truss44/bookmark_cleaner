@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Ensure tags are available for semantic-release
+          fetch-tags: true
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install semantic-release
+        run: |
+          python -m pip install --upgrade pip
+          pip install python-semantic-release
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Configure SSH commit signing
+        if: vars.SSH_SIGNING_KEY != ''
+        env:
+          SSH_SIGNING_KEY: ${{ secrets.SSH_SIGNING_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_SIGNING_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > ~/.ssh/id_ed25519.pub
+          git config gpg.format ssh
+          git config user.signingkey ~/.ssh/id_ed25519.pub
+          git config commit.gpgsign true
+
+      - name: Run python-semantic-release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          semantic-release -v version --push --vcs-release
+
+      - name: Update 'latest' tag to most recent release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -e
+          git fetch --tags --force
+          # Determine the most recent tag (highest SemVer tag)
+          LATEST_TAG=$(git tag --sort=-version:refname | head -n 1)
+          echo "Most recent release tag: $LATEST_TAG"
+          # Point/move local 'latest' tag to that tag's commit
+          git tag -f latest "$LATEST_TAG"
+          # Remove remote 'latest' if it exists (ignore error), then push updated tag
+          git push origin :refs/tags/latest || true
+          git push origin refs/tags/latest

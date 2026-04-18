@@ -1,0 +1,37 @@
+name: Lint
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8 on Python code
+        run: python -m flake8 bookmark_cleaner.py --max-line-length=79
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Run Prettier format check
+        run: npm run format:check
