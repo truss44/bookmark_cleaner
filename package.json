@@ -4,7 +4,8 @@
   "description": "A Python command-line tool that parses your exported Edge favorites, removes dead links, and automatically organizes unfoldered bookmarks into topic-based folders — producing a clean HTML file ready to import back into Edge.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "python3 -m pytest tests/ -v",
+    "test:coverage": "python3 -m pytest tests/ -v --tb=short --cov=bookmark_cleaner --cov-report=term-missing",
     "start": "python bookmark_cleaner.py",
     "format": "prettier --write \"**/*.{md,json,yml,yaml,html,css,js,ts}\"",
     "format:check": "prettier --check \"**/*.{md,json,yml,yaml,html,css,js,ts}\"",

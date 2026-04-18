@@ -9,6 +9,8 @@ A Python command-line tool that parses your exported Edge favorites, removes dea
 - **Automatic backup** — timestamped copy of the original is always created before any changes
 - **Dead link removal** — checks every URL concurrently; removes 404s, 410s, and unreachable sites
 - **Smart organization** — loose (unfoldered) bookmarks are matched against topic rules and moved into relevant folders and subfolders
+- **Singleton consolidation** — folders with only one bookmark are detected and that bookmark is moved to the most relevant existing folder; empty folders are deleted
+- **Alphabetical sorting** — all folders and bookmarks are sorted alphabetically after organization (folders first, then bookmarks)
 - **Edge-compatible output** — writes standard Netscape Bookmark HTML that Edge imports natively
 - **Detailed logging** — per-URL results written to a log file for review
 - **Dry-run mode** — preview all changes without writing any files
@@ -101,6 +103,29 @@ npm run format:check
 ```
 
 Configuration is in `.prettierrc`. Note: Prettier does not format Python files; for Python code formatting, use Black or your preferred Python formatter.
+
+### Python Testing
+
+This project uses [pytest](https://pytest.org/) for testing. Tests live in the `tests/` directory.
+
+```bash
+# Install test dependencies
+pip install pytest pytest-cov
+
+# Run all tests
+npm test
+
+# Or run directly
+python3 -m pytest tests/ -v
+
+# Run with coverage report
+npm run test:coverage
+
+# Or run directly
+python3 -m pytest tests/ -v --cov=bookmark_cleaner --cov-report=term-missing
+```
+
+Tests cover singleton folder consolidation, alphabetical sorting, and all supporting helper functions. All tests must pass before merging PRs.
 
 ### Python Linting
 
@@ -246,7 +271,7 @@ Non-HTTP URLs (e.g. `javascript:`, `chrome://`, `file://`) are skipped and kept.
 
 ## How Organization Works
 
-Only root-level (unfoldered) bookmarks are organized — your existing folder structure is always preserved as-is.
+Root-level (unfoldered) bookmarks are organized into folders. After organization, singleton folders (folders containing only one bookmark) are consolidated, and all folders and bookmarks are sorted alphabetically.
 
 ### AI-Powered Organization (default)
 
@@ -314,12 +339,22 @@ For a collection of ~1,000 bookmarks with default settings (20 threads, 10s time
 
 Reduce `--threads` if you hit rate limits; increase `--timeout` if legitimate sites are being flagged as dead due to slow response times.
 
+### Singleton Folder Consolidation
+
+After all bookmarks are organized into folders, the script scans for folders containing only one bookmark. Each such folder is treated as a sign that the bookmark needs a better home. The lone bookmark is relocated to the most topically relevant existing folder (using AI or keyword rules), and the now-empty folder is deleted. This process repeats until no singleton folders remain.
+
+The AI taxonomy prompt also instructs the model to avoid creating singleton folders in the first place — every folder should contain at least 2 bookmarks.
+
+### Alphabetical Sorting
+
+After consolidation, all folders and bookmarks are sorted alphabetically at every level of the hierarchy. Folders appear before bookmarks within each parent, and both groups are sorted case-insensitively by name/title.
+
 ---
 
 ## Limitations
 
 - **Favicon/icon data** is preserved from the original file but not re-fetched for bookmarks moved to new folders
-- The script does not restructure or rename your existing folders — it only moves loose (unfoldered) bookmarks
+- Existing folder structures are preserved as-is; only unfoldered bookmarks and singleton folders are reorganized
 - Some CDN-protected or bot-blocking sites may return errors despite being live; always review the log before finalizing
 - `file://` and `chrome://` URLs are kept without checking
 
