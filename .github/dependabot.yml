@@ -12,7 +12,7 @@ updates:
       interval: "weekly"
     versioning-strategy: "lockfile-only"
     open-pull-requests-limit: 10
-    
+
     # Control which updates to perform
     groups:
       # Major version updates separate, minor and patch together
@@ -21,7 +21,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      
+
     commit-message:
       prefix: "deps"
       include: "scope"
