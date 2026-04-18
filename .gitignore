@@ -1,0 +1,33 @@
+# Environment variables — never commit your API keys
+.env
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Logs
+*.log
+
+# Output and backup files — these are generated, not source
+*_cleaned_*.html
+*_backup_*.html
+*.html
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
