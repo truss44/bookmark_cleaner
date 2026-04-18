@@ -16,7 +16,7 @@ allow_zero_version = false
 tag_format = "v{version}"
 
 [tool.semantic_release.remote]
-token = "GITHUB_TOKEN"
+token = { env = "GITHUB_TOKEN" }
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = true
