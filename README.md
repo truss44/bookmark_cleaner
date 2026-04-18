@@ -36,6 +36,7 @@ pip install requests openai python-dotenv
 The script uses OpenAI to intelligently assign your bookmarks to folders. To enable this, you need an OpenAI API key.
 
 1. Copy the example env file:
+
    ```bash
    # Windows (PowerShell)
    Copy-Item .env.example .env
@@ -45,6 +46,7 @@ The script uses OpenAI to intelligently assign your bookmarks to folders. To ena
    ```
 
 2. Open `.env` and configure your settings:
+
    ```
    OPENAI_API_KEY=sk-proj-...
    OPENAI_MODEL=gpt-5.4-mini
@@ -57,13 +59,51 @@ The script uses OpenAI to intelligently assign your bookmarks to folders. To ena
 
 > If no API key is found, the script falls back to built-in keyword-based folder rules automatically — no crash, no interruption.
 
+### Code Formatting
+
+This project uses Prettier for code formatting. The following npm scripts are available:
+
+```bash
+# Install dependencies (first time only)
+npm install
+
+# Format all supported files (.md, .json, .yml, .yaml, .html, .css, .js, .ts)
+npm run format
+
+# Check formatting without making changes
+npm run format:check
+```
+
+Configuration is in `.prettierrc`. Note: Prettier does not format Python files; for Python code formatting, use Black or your preferred Python formatter.
+
+### Python Linting
+
+This project uses [flake8](https://flake8.pycqa.org/) for Python linting. To lint the Python code:
+
+```bash
+# Run the linter
+npm run lint
+
+# Or run directly
+python3 -m flake8 bookmark_cleaner.py
+```
+
+The lint script is configured in `package.json` and runs flake8 with a maximum line length of 79 characters. All lint errors must be fixed before merging PRs.
+
 ## Quick Start
 
 ```bash
 python bookmark_cleaner.py favorites.html
 ```
 
+Or using npm (after running `npm install`):
+
+```bash
+npm start favorites.html
+```
+
 This will:
+
 1. Create a timestamped backup of `favorites.html`
 2. Check all URLs for availability
 3. Remove dead links
@@ -80,49 +120,56 @@ python bookmark_cleaner.py <input_file> [options]
 
 ### Options
 
-| Option | Default | Description |
-|---|---|---|
-| `--output FILE` | `<input>_cleaned_<timestamp>.html` | Path for the output file |
-| `--threads N` | `20` | Number of concurrent URL check workers |
-| `--timeout N` | `10` | Per-URL timeout in seconds |
-| `--dry-run` | off | Preview changes without writing any files |
-| `--skip-check` | off | Skip URL checks; organize only |
-| `--no-ai` | off | Skip AI folder assignment; use built-in keyword rules instead |
-| `--log FILE` | `bookmark_cleaner.log` | Path for the detailed per-URL log |
+| Option          | Default                            | Description                                                   |
+| --------------- | ---------------------------------- | ------------------------------------------------------------- |
+| `--output FILE` | `<input>_cleaned_<timestamp>.html` | Path for the output file                                      |
+| `--threads N`   | `20`                               | Number of concurrent URL check workers                        |
+| `--timeout N`   | `10`                               | Per-URL timeout in seconds                                    |
+| `--dry-run`     | off                                | Preview changes without writing any files                     |
+| `--skip-check`  | off                                | Skip URL checks; organize only                                |
+| `--no-ai`       | off                                | Skip AI folder assignment; use built-in keyword rules instead |
+| `--log FILE`    | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
 
 ### Examples
 
 **Standard full run** (URL check + organize):
+
 ```bash
 python bookmark_cleaner.py favorites.html
 ```
 
 **Slower or throttled connections** — reduce threads and increase timeout:
+
 ```bash
 python bookmark_cleaner.py favorites.html --threads 10 --timeout 20
 ```
 
 **Organize only, skip URL checks** (much faster):
+
 ```bash
 python bookmark_cleaner.py favorites.html --skip-check
 ```
 
 **Preview everything without writing files**:
+
 ```bash
 python bookmark_cleaner.py favorites.html --dry-run
 ```
 
 **Specify a custom output path**:
+
 ```bash
 python bookmark_cleaner.py favorites.html --output my_cleaned_favorites.html
 ```
 
 **Skip AI organization, use built-in keyword rules instead**:
+
 ```bash
 python bookmark_cleaner.py favorites.html --no-ai
 ```
 
 **Full options example**:
+
 ```bash
 python bookmark_cleaner.py favorites.html \
   --output clean.html \
@@ -146,7 +193,7 @@ python bookmark_cleaner.py favorites.html \
 
 1. Open Microsoft Edge
 2. Go to **Settings** (⋯ menu) → **Favorites** → **⋯ menu** → **Import favorites**  
-   *or navigate to:* `edge://settings/importData`
+   _or navigate to:_ `edge://settings/importData`
 3. Under **Import from**, choose **Favorites or bookmarks HTML file**
 4. Select the output file produced by this script
 5. Click **Import**
@@ -185,7 +232,7 @@ The AI creates folders and subfolders appropriate to what it sees — for exampl
 - `Health & Fitness/Nutrition & Diet`
 - `AI Tools/MCP`
 - `Finance & Crypto/Crypto`
-- `Unsorted Bookmarks` *(catch-all for anything it can't categorize)*
+- `Unsorted Bookmarks` _(catch-all for anything it can't categorize)_
 
 Because the model sees the whole collection at once, it can create folders that reflect your specific bookmarks rather than a generic preset list.
 
@@ -215,11 +262,11 @@ Use a `/` separator to create subfolders:
 
 After a full run you will have:
 
-| File | Description |
-|---|---|
-| `<input>.html` | Your original file, left completely untouched |
+| File                               | Description                                      |
+| ---------------------------------- | ------------------------------------------------ |
+| `<input>.html`                     | Your original file, left completely untouched    |
 | `<input>_cleaned_<timestamp>.html` | Cleaned and organized favorites, ready to import |
-| `bookmark_cleaner.log` | Per-URL check results with HTTP status codes |
+| `bookmark_cleaner.log`             | Per-URL check results with HTTP status codes     |
 
 The `.env` file (containing your API key) is never written to or modified by the script.
 
@@ -247,4 +294,4 @@ Reduce `--threads` if you hit rate limits; increase `--timeout` if legitimate si
 
 ## License
 
-MIT — free to use, modify, and redistribute.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

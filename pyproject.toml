@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "build"]
+build-backend = "setuptools.build_meta"
+
+[tool.semantic_release]
+allow_zero_version = false
+tag_format = "v{version}"
+
+[tool.semantic_release.remote]
+token = "GITHUB_TOKEN"
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = true

@@ -1,0 +1,28 @@
+{
+  "name": "bookmark_cleaner",
+  "version": "1.0.0",
+  "description": "A Python command-line tool that parses your exported Edge favorites, removes dead links, and automatically organizes unfoldered bookmarks into topic-based folders — producing a clean HTML file ready to import back into Edge.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "python bookmark_cleaner.py",
+    "format": "prettier --write \"**/*.{md,json,yml,yaml,html,css,js,ts}\"",
+    "format:check": "prettier --check \"**/*.{md,json,yml,yaml,html,css,js,ts}\"",
+    "lint": "python3 -m flake8 bookmark_cleaner.py"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/truss44/bookmark_cleaner.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/truss44/bookmark_cleaner/issues"
+  },
+  "homepage": "https://github.com/truss44/bookmark_cleaner#readme",
+  "devDependencies": {
+    "prettier": "^3.8.3"
+  }
+}
