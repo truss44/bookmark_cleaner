@@ -1580,6 +1580,3 @@ def _print_summary(root: Folder, removed: list, output: Path) -> None:
 
 if __name__ == "__main__":
     main()
-
-if __name__ == "__main__":
-    main()
