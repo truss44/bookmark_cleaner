@@ -121,10 +121,17 @@ class Bookmark:
 class Folder:
     """Represents a <H3> folder entry."""
 
-    def __init__(self, name: str, add_date: str = "", last_modified: str = ""):
+    def __init__(
+        self,
+        name: str,
+        add_date: str = "",
+        last_modified: str = "",
+        personal_toolbar_folder: bool = False,
+    ):
         self.name = name
         self.add_date = add_date
         self.last_modified = last_modified
+        self.personal_toolbar_folder = personal_toolbar_folder
         self.children: list = []  # mix of Bookmark and Folder
 
     def __repr__(self):
@@ -163,6 +170,10 @@ class BookmarkParser(HTMLParser):
                 name="",
                 add_date=attr_dict.get("add_date", ""),
                 last_modified=attr_dict.get("last_modified", ""),
+                personal_toolbar_folder=(
+                    attr_dict.get("personal_toolbar_folder", "").lower()
+                    == "true"
+                ),
             )
             self._stack[-1].children.append(folder)
             self._in_title = True  # next data is the folder name
@@ -1286,8 +1297,13 @@ def _write_tree(node, lines: list[str], indent: int = 0) -> None:
                 if child.last_modified
                 else ""
             )
+            toolbar = (
+                ' PERSONAL_TOOLBAR_FOLDER="true"'
+                if child.personal_toolbar_folder
+                else ""
+            )
             lines.append(
-                f"{pad}<DT><H3{add_date}{last_mod}>"
+                f"{pad}<DT><H3{add_date}{last_mod}{toolbar}>"
                 f"{_esc(child.name)}</H3>\n"
             )
             lines.append(f"{pad}<DL><p>\n")
@@ -1561,6 +1577,9 @@ def _print_summary(root: Folder, removed: list, output: Path) -> None:
     print(f"  Output file size    : {output.stat().st_size:,} bytes")
     print("=" * 60)
 
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
