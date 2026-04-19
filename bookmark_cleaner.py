@@ -430,6 +430,17 @@ def _call_ai(provider: str, api_key: str, model: str, prompt: str) -> str:
             response = client.chat.send(
                 model=model, messages=[{"role": "user", "content": prompt}]
             )
+            # Check for API error responses before parsing
+            if hasattr(response, 'error') and response.error:
+                error_msg = response.error.get('message', 'Unknown error')
+                error_code = response.error.get('code', 'Unknown')
+                raise RuntimeError(
+                    f"OpenRouter API error {error_code}: {error_msg}"
+                )
+            if not hasattr(response, 'choices') or not response.choices:
+                raise RuntimeError(
+                    f"OpenRouter returned invalid response: {response}"
+                )
             return response.choices[0].message.content.strip()
     raise ValueError(f"Unknown provider: {provider}")
 
