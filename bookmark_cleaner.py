@@ -1035,10 +1035,12 @@ def _get_or_create_folder(parent: Folder, name: str) -> Folder:
 
 
 def _sanitize_folder_path(path: str) -> str:
-    """Collapse any 'Unsorted Bookmarks/...' path to the top-level only."""
+    """Normalize a folder path: collapse Unsorted Bookmarks sub-paths
+    and enforce the 3-level depth cap."""
     if path.startswith("Unsorted Bookmarks/"):
         return "Unsorted Bookmarks"
-    return path
+    parts = [p.strip() for p in path.split("/") if p.strip()]
+    return "/".join(parts[:3])
 
 
 def _get_or_create_nested(parent: Folder, path: str) -> Folder:
