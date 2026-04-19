@@ -14,6 +14,10 @@ testpaths = ["tests"]
 [tool.semantic_release]
 allow_zero_version = false
 tag_format = "v{version}"
+version_source = "commit"
+version_variables = [
+    "package.json:version"
+]
 
 [tool.semantic_release.remote]
 token = { env = "GITHUB_TOKEN" }
