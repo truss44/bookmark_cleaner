@@ -1736,7 +1736,11 @@ def main():
 
     # ── Auto-detect HTML file if not specified ─────────────────────────────
     if args.input is None:
-        html_files = list(Path(".").glob("*.html"))
+        html_files = [
+            f for f in Path(".").glob("*.html")
+            if "_cleaned_" not in f.name
+            and not f.name.endswith("_bookmarks_export.html")
+        ]
         if len(html_files) == 1:
             args.input = str(html_files[0])
             print(f"Auto-detected HTML file: {args.input}")
