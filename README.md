@@ -172,16 +172,16 @@ python bookmark_cleaner.py <input_file> [options]
 
 ### Options
 
-| Option            | Default                            | Description                                                   |
-| ----------------- | ---------------------------------- | ------------------------------------------------------------- |
-| `--output FILE`   | `<input>_cleaned_<timestamp>.html` | Path for the output file                                      |
-| `--threads N`     | `20`                               | Number of concurrent URL check workers                        |
-| `--timeout N`     | `10`                               | Per-URL timeout in seconds                                    |
-| `--dry-run`       | off                                | Preview changes without writing any files                     |
-| `--skip-check`    | off                                | Skip URL checks; organize only                                |
-| `--no-ai`         | off                                | Skip AI folder assignment; use built-in keyword rules instead |
-| `--max-passes N`  | `15`                               | Max passes when merging lone folders                          |
-| `--log FILE`      | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
+| Option           | Default                            | Description                                                   |
+| ---------------- | ---------------------------------- | ------------------------------------------------------------- |
+| `--output FILE`  | `<input>_cleaned_<timestamp>.html` | Path for the output file                                      |
+| `--threads N`    | `20`                               | Number of concurrent URL check workers                        |
+| `--timeout N`    | `10`                               | Per-URL timeout in seconds                                    |
+| `--dry-run`      | off                                | Preview changes without writing any files                     |
+| `--skip-check`   | off                                | Skip URL checks; organize only                                |
+| `--no-ai`        | off                                | Skip AI folder assignment; use built-in keyword rules instead |
+| `--max-passes N` | `15`                               | Max passes when merging lone folders                          |
+| `--log FILE`     | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
 
 ### Examples
 
@@ -237,11 +237,11 @@ python bookmark_cleaner.py favorites.html \
 
 If you run the script without specifying an input file and no `.html` file is present in the current directory, the tool will automatically search for browser bookmark files in common OS locations:
 
-| Browser | Detection |
-| ------- | --------- |
+| Browser        | Detection                                              |
+| -------------- | ------------------------------------------------------ |
 | Microsoft Edge | Standard user data directory (Windows / macOS / Linux) |
-| Google Chrome | Standard user data directory (Windows / macOS / Linux) |
-| Brave | Standard user data directory (Windows / macOS / Linux) |
+| Google Chrome  | Standard user data directory (Windows / macOS / Linux) |
+| Brave          | Standard user data directory (Windows / macOS / Linux) |
 
 **Single browser found:** The bookmarks are exported automatically and the script continues — no prompt needed.
 
