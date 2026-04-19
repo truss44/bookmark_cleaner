@@ -638,23 +638,107 @@ def _collect_eligible_folders(
     return result
 
 
+def _build_ai_subfolder_maps_batch(
+    folders_data: list[tuple[str, list[Bookmark], list[str]]],
+) -> dict[int, dict[str, str]]:
+    """One AI call for all eligible folders.
+
+    folders_data: list of (folder_name, bookmarks, existing_subfolders).
+    Returns {folder_index: {href: subfolder_name}}.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return {}
+    provider, api_key, model = prov
+
+    payload = []
+    for fi, (fname, bms, existing) in enumerate(folders_data):
+        payload.append({
+            "folder_index": fi,
+            "folder_name": fname,
+            "existing_subfolders": existing,
+            "bookmarks": [
+                {"id": bi, "title": bm.title.strip(), "url": bm.href}
+                for bi, bm in enumerate(bms)
+            ],
+        })
+
+    prompt = (
+        "For each folder below, identify natural sub-groups and assign "
+        "each bookmark to a sub-folder name (single level, no '/' "
+        "nesting).\n\n"
+        "Rules:\n"
+        "- Only create a sub-folder if AT LEAST 2 bookmarks belong to "
+        "it.\n"
+        "- If a bookmark fits better staying in its parent folder, "
+        "return the folder_name value for it.\n"
+        "- Do NOT invent sub-folders for singletons.\n"
+        "- Prefer reusing existing_subfolders when they are a strong "
+        "match.\n"
+        "- Return ONLY valid JSON with this exact structure:\n"
+        '  {"0": {"0": "Gaming", "1": "Movies"}, "1": {"0": "Backend"}'
+        "}\n"
+        "  Outer key = folder_index (string), inner key = bookmark id "
+        "(string), value = sub-folder name string.\n"
+        "No explanation, no markdown.\n\n"
+        f"Folders:\n{json.dumps(payload, ensure_ascii=False)}\n"
+    )
+
+    try:
+        raw = _call_ai(provider, api_key, model, prompt)
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        outer = json.loads(raw)
+        result: dict[int, dict[str, str]] = {}
+        for fi_str, bm_map in outer.items():
+            fi = int(fi_str)
+            if fi < 0 or fi >= len(folders_data):
+                continue
+            _, bms, _ = folders_data[fi]
+            href_map: dict[str, str] = {}
+            for bi_str, sub in bm_map.items():
+                bi = int(bi_str)
+                if 0 <= bi < len(bms):
+                    href_map[bms[bi].href] = sub
+            result[fi] = href_map
+        return result
+    except Exception:
+        return {}
+
+
 def subfolderize_existing_folders(
     root: Folder, use_ai: bool = True, min_bookmarks: int = 3
 ) -> dict[str, int]:
     """For every folder with enough direct bookmarks, create sub-folders.
 
-    Collects direct bookmark children of each folder, asks AI to suggest
-    sub-folder groupings, and moves bookmarks accordingly.
+    One AI call for all eligible folders (batch), not one per folder.
     Returns {folder_path: count_moved}.
     """
     moved_counts: dict[str, int] = {}
     eligible = _collect_eligible_folders(root, min_bookmarks)
     total = len(eligible)
 
-    for done, (node, path) in enumerate(eligible, start=1):
-        direct_bms = [
-            c for c in node.children if isinstance(c, Bookmark)
+    # Collect data for batch AI call
+    folders_data: list[tuple[str, list[Bookmark], list[str]]] = []
+    for node, _path in eligible:
+        direct_bms = [c for c in node.children if isinstance(c, Bookmark)]
+        existing_subs = [
+            c.name for c in node.children if isinstance(c, Folder)
         ]
+        folders_data.append((node.name, direct_bms, existing_subs))
+
+    # One AI call for everything
+    batch_map: dict[int, dict[str, str]] = {}
+    if use_ai and folders_data:
+        print(
+            f"  Asking AI to suggest sub-folders for {total} "
+            "folder(s) …",
+            flush=True,
+        )
+        batch_map = _build_ai_subfolder_maps_batch(folders_data)
+
+    for done, (node, path) in enumerate(eligible, start=1):
+        direct_bms = folders_data[done - 1][1]
         print(
             f"  [{done}/{total}] '{path}' "
             f"({len(direct_bms)} bookmarks) …",
@@ -662,13 +746,7 @@ def subfolderize_existing_folders(
         )
         if not use_ai:
             continue
-        existing_subs = [
-            c.name for c in node.children if isinstance(c, Folder)
-        ]
-        sub_map = build_ai_subfolder_map(
-            node.name, direct_bms,
-            existing_subfolders=existing_subs or None,
-        )
+        sub_map = batch_map.get(done - 1, {})
         count = 0
         for bm in list(direct_bms):
             suggested = sub_map.get(bm.href, "").strip()
@@ -1364,40 +1442,57 @@ def collect_lone_folders(
     return results
 
 
-def _ai_best_folder_for_bookmark(
-    bm: Bookmark, folder_names: list[str]
-) -> Optional[str]:
-    """Ask AI which existing folder best fits a lone bookmark."""
+def _ai_best_folders_for_bookmarks(
+    bookmarks: list[Bookmark], folder_names: list[str]
+) -> dict[str, str]:
+    """Batch: ask AI the best existing folder for each lone bookmark.
+
+    Returns {href: folder_path}. One AI call for all bookmarks in a pass.
+    """
     prov = _get_ai_provider()
     if prov is None:
-        return None
+        return {}
     provider, api_key, model = prov
 
+    bm_list = [
+        {"id": i, "title": bm.title.strip(), "url": bm.href}
+        for i, bm in enumerate(bookmarks)
+    ]
     prompt = (
-        "A bookmark is currently in its own isolated folder "
+        "Each bookmark below is currently in its own isolated folder "
         "with no other bookmarks.\n"
-        "Find the BEST existing folder from the list below to place it in.\n"
-        f"\nBookmark:\n  Title: {bm.title}\n  URL: {bm.href}\n"
+        "Assign each to the BEST existing folder from the list.\n"
         "\nAvailable folders:\n"
         f"{json.dumps(folder_names, ensure_ascii=False)}\n"
         "\nRules:\n"
-        "- Return ONLY a JSON string — exact folder path from list above.\n"
+        "- Use only folder paths from the list above.\n"
         "- Do not invent new folder names.\n"
-        "- Pick the most topically relevant folder.\n"
-        '- If nothing fits well, return "Unsorted Bookmarks".\n'
-        '\nExample output: "Software Engineering/Frontend"\n'
+        "- Pick the most topically relevant folder for each bookmark.\n"
+        '- If nothing fits, use "Unsorted Bookmarks".\n'
+        "- Return ONLY valid JSON mapping each numeric id (string key) "
+        "to the folder path.\n"
+        "No explanation, no markdown.\n\n"
+        "Example: {\"0\": \"Health & Fitness\", \"1\": \"Finance\"}\n\n"
+        f"Bookmarks:\n{json.dumps(bm_list, ensure_ascii=False)}\n"
     )
     try:
         raw = _call_ai(provider, api_key, model, prompt)
-        raw = raw.strip().strip('"').strip("'")
-        if raw in folder_names:
-            return raw
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        mapping = json.loads(raw)
         lower_map = {n.lower(): n for n in folder_names}
-        if raw.lower() in lower_map:
-            return lower_map[raw.lower()]
-        return None
+        result: dict[str, str] = {}
+        for idx_str, path in mapping.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(bookmarks):
+                path = path.strip()
+                if path in folder_names:
+                    result[bookmarks[idx].href] = path
+                elif path.lower() in lower_map:
+                    result[bookmarks[idx].href] = lower_map[path.lower()]
+        return result
     except Exception:
-        return None
+        return {}
 
 
 def consolidate_lone_folders(
@@ -1411,6 +1506,7 @@ def consolidate_lone_folders(
     best matching existing folder, and delete the now-empty folder.
     Repeats until no lone folders remain or stop_event is set.
     Returns count of relocated bookmarks.
+    One AI call per pass (batch), not one per bookmark.
     """
     total_moved = 0
     pass_num = 0
@@ -1427,10 +1523,11 @@ def consolidate_lone_folders(
         pass_num += 1
         total = len(candidates)
         all_folder_names = _collect_folder_names(root)
-        moves_this_pass = 0
-        for done, (parent, lone_folder, bm) in enumerate(candidates, start=1):
-            # Exclude the lone folder itself so AI can't pick it
-            lone_path = next(
+
+        # Build set of lone-folder paths to exclude from destinations
+        lone_folder_paths: set[str] = set()
+        for _, lone_folder, _ in candidates:
+            match = next(
                 (
                     p
                     for p in all_folder_names
@@ -1439,29 +1536,37 @@ def consolidate_lone_folders(
                 ),
                 None,
             )
-            folder_names = (
-                [p for p in all_folder_names if p != lone_path]
-                if lone_path
-                else all_folder_names
+            if match:
+                lone_folder_paths.add(match)
+        dest_folder_names = [
+            p for p in all_folder_names if p not in lone_folder_paths
+        ]
+
+        # One batch AI call for all bookmarks in this pass
+        lone_bms = [bm for _, _, bm in candidates]
+        ai_map: dict[str, str] = {}
+        if use_ai:
+            ai_map = _ai_best_folders_for_bookmarks(
+                lone_bms, dest_folder_names
             )
-            dest_path: Optional[str] = None
-            if use_ai:
-                dest_path = _ai_best_folder_for_bookmark(bm, folder_names)
+
+        moves_this_pass = 0
+        for done, (parent, lone_folder, bm) in enumerate(candidates, start=1):
+            dest_path: Optional[str] = ai_map.get(bm.href)
             if dest_path is None:
                 dest_path = _suggest_folder_rules(bm)
             if dest_path is None:
                 dest_path = "Unsorted Bookmarks"
             dest = _get_or_create_nested(root, dest_path)
-            # If dest is still the lone folder, force Unsorted Bookmarks
+            # If dest resolved to the lone folder itself, use Unsorted
             if dest is lone_folder:
                 if lone_folder.name == "Unsorted Bookmarks":
-                    # Can't merge with itself; leave it
                     pct = (done / total) * 100
                     bar_filled = int(pct / 5)
-                    bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
-                    pct = (done / total) * 100
-                    bar_filled = int(pct / 5)
-                    bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
+                    bar = (
+                        "\u2588" * bar_filled
+                        + "\u2591" * (20 - bar_filled)
+                    )
                     print(
                         f"\r  Pass {pass_num} [{bar}] {pct:5.1f}%"
                         f"  {done}/{total} processed"
