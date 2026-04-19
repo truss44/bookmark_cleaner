@@ -498,10 +498,12 @@ Your task:
    "DevOps", "Crypto", "Fitness") — NEVER use a bookmark's own title,
    a package/library name, a website name, or a place name as a folder
    name unless it represents a whole category of related content.
-   Avoid generic names like "Miscellaneous" unless truly needed.
-   Use a catch-all folder called "Unsorted Bookmarks" only for items
-   that genuinely defy categorisation. "Unsorted Bookmarks" must be
-   flat — never create sub-folders under it.
+   Avoid generic names like "Miscellaneous", "Other", "Misc", or any
+   variation of "Unsorted" other than the exact name below.
+   The ONLY permitted catch-all folder name is "Unsorted Bookmarks" —
+   use it only for items that genuinely defy categorisation, and NEVER
+   create sub-folders under it. Do NOT invent names like
+   "Unsorted Places & Websites", "Unsorted Links", or similar.
 2. Assign every bookmark to exactly one folder path using "/" as a separator
    for sub-folders (e.g. "Software Engineering/Frontend/React" or
    "Finance/Crypto/DeFi/Lending").
@@ -1035,11 +1037,13 @@ def _get_or_create_folder(parent: Folder, name: str) -> Folder:
 
 
 def _sanitize_folder_path(path: str) -> str:
-    """Normalize a folder path: collapse Unsorted Bookmarks sub-paths
-    and enforce the 3-level depth cap."""
-    if path.startswith("Unsorted Bookmarks/"):
-        return "Unsorted Bookmarks"
+    """Normalize a folder path: collapse any Unsorted-* variant to
+    'Unsorted Bookmarks' and enforce the 3-level depth cap."""
     parts = [p.strip() for p in path.split("/") if p.strip()]
+    if not parts:
+        return "Unsorted Bookmarks"
+    if parts[0].lower().startswith("unsorted"):
+        return "Unsorted Bookmarks"
     return "/".join(parts[:3])
 
 
