@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.1 (2026-04-19)
+
+### Bug Fixes
+
+- Add error handling for OpenRouter API responses before parsing
+  ([`e0006af`](https://github.com/truss44/bookmark_cleaner/commit/e0006afd0e91fd9ce4dd7c90ed4196d9e7d0fd78))
+
+
 ## v1.3.0 (2026-04-19)
 
 ### Bug Fixes
