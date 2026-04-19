@@ -1415,11 +1415,11 @@ def _delete_empty_folder(parent: Folder, folder: Folder) -> None:
 
 
 def _prune_empty_folders(node: Folder) -> None:
-    """Recursively remove all childless folders from the tree."""
+    """Recursively remove childless folders, skipping original ones."""
     for child in list(node.children):
         if isinstance(child, Folder):
             _prune_empty_folders(child)
-            if not child.children:
+            if not child.children and not child.original:
                 node.children.remove(child)
 
 
