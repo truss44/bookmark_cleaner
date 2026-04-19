@@ -396,6 +396,17 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
     return None
 
 
+def _ai_display_name() -> str:
+    """Return short display name of configured AI model, e.g. 'gpt-5.4-nano'.
+
+    Falls back to 'AI' when no provider is configured.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return "AI"
+    return prov[2]  # model string
+
+
 def _call_ai(provider: str, api_key: str, model: str, prompt: str) -> str:
     """Dispatch prompt to AI provider and return raw text response."""
     if provider == "openai":
@@ -543,12 +554,17 @@ Bookmarks:
             idx = int(idx_str)
             if 0 <= idx < len(bookmarks):
                 href_map[bookmarks[idx].href] = folder_path
-        print(f"  AI assigned {len(href_map)} bookmarks to folders.")
+        model_name = _ai_display_name()
+        print(
+            f"  {model_name} assigned {len(href_map)} bookmarks "
+            "to folders."
+        )
         return href_map
     except Exception as exc:
+        model_name = _ai_display_name()
         print(
-            f"  WARNING: AI folder assignment failed ({exc}) — "
-            "falling back to rule-based organizer."
+            f"  WARNING: {model_name} folder assignment failed "
+            f"({exc}) — falling back to rule-based organizer."
         )
         return {}
 
@@ -731,8 +747,8 @@ def subfolderize_existing_folders(
     batch_map: dict[int, dict[str, str]] = {}
     if use_ai and folders_data:
         print(
-            f"  Asking AI to suggest sub-folders for {total} "
-            "folder(s) …",
+            f"  Asking {_ai_display_name()} to suggest sub-folders "
+            f"for {total} folder(s) …",
             flush=True,
         )
         batch_map = _build_ai_subfolder_maps_batch(folders_data)
@@ -2359,7 +2375,16 @@ def main():
     # ── Organize unfoldered bookmarks ──────────────────────────────────────
     # Refresh after possible removals
     orphans = collect_unfoldered(root)
-    print(f"\nOrganizing {len(orphans)} top-level (unfoldered) bookmarks …")
+    if args.no_ai:
+        print(
+            f"\nOrganizing {len(orphans)} top-level (unfoldered) "
+            "bookmarks …"
+        )
+    else:
+        print(
+            f"\nAsking {_ai_display_name()} to organize "
+            f"{len(orphans)} top-level (unfoldered) bookmarks …"
+        )
 
     ai_map: Optional[dict[str, str]] = None
     if not args.no_ai and orphans:
@@ -2415,7 +2440,10 @@ def main():
 
     # ── Merge similar folders ──────────────────────────────────────────────
     if not args.no_ai:
-        print("\nChecking for similar folders to merge …")
+        print(
+            f"\nAsking {_ai_display_name()} to check for similar "
+            "folders to merge …"
+        )
         all_folder_names = _collect_folder_names(root)
         top_level_names = [
             n for n in all_folder_names if "/" not in n
