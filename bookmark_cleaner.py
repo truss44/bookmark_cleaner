@@ -500,7 +500,8 @@ Your task:
    name unless it represents a whole category of related content.
    Avoid generic names like "Miscellaneous" unless truly needed.
    Use a catch-all folder called "Unsorted Bookmarks" only for items
-   that genuinely defy categorisation.
+   that genuinely defy categorisation. "Unsorted Bookmarks" must be
+   flat — never create sub-folders under it.
 2. Assign every bookmark to exactly one folder path using "/" as a separator
    for sub-folders (e.g. "Software Engineering/Frontend/React" or
    "Finance/Crypto/DeFi/Lending").
@@ -1033,9 +1034,17 @@ def _get_or_create_folder(parent: Folder, name: str) -> Folder:
     return new_folder
 
 
+def _sanitize_folder_path(path: str) -> str:
+    """Collapse any 'Unsorted Bookmarks/...' path to the top-level only."""
+    if path.startswith("Unsorted Bookmarks/"):
+        return "Unsorted Bookmarks"
+    return path
+
+
 def _get_or_create_nested(parent: Folder, path: str) -> Folder:
     """Given 'AI Tools/Image Generation', return (or create)
     the nested folder."""
+    path = _sanitize_folder_path(path)
     parts = [p.strip() for p in path.split("/")]
     node = parent
     for part in parts:
@@ -1225,7 +1234,9 @@ def _ai_best_folder_for_bookmark(
         return None
 
 
-def consolidate_lone_folders(root: Folder, use_ai: bool = True) -> int:
+def consolidate_lone_folders(
+    root: Folder, use_ai: bool = True, max_passes: int = 15
+) -> int:
     """
     Detect folders with exactly one bookmark, relocate that bookmark to the
     best matching existing folder, and delete the now-empty folder.
@@ -1234,15 +1245,30 @@ def consolidate_lone_folders(root: Folder, use_ai: bool = True) -> int:
     """
     total_moved = 0
     pass_num = 0
-    while True:
+    while pass_num < max_passes:
         candidates = collect_lone_folders(root)
         if not candidates:
             break
         pass_num += 1
         total = len(candidates)
-        folder_names = _collect_folder_names(root)
+        all_folder_names = _collect_folder_names(root)
         moves_this_pass = 0
         for done, (parent, lone_folder, bm) in enumerate(candidates, start=1):
+            # Exclude the lone folder itself so AI can't pick it
+            lone_path = next(
+                (
+                    p
+                    for p in all_folder_names
+                    if p == lone_folder.name
+                    or p.endswith("/" + lone_folder.name)
+                ),
+                None,
+            )
+            folder_names = (
+                [p for p in all_folder_names if p != lone_path]
+                if lone_path
+                else all_folder_names
+            )
             dest_path: Optional[str] = None
             if use_ai:
                 dest_path = _ai_best_folder_for_bookmark(bm, folder_names)
@@ -1251,24 +1277,42 @@ def consolidate_lone_folders(root: Folder, use_ai: bool = True) -> int:
             if dest_path is None:
                 dest_path = "Unsorted Bookmarks"
             dest = _get_or_create_nested(root, dest_path)
+            # If dest is still the lone folder, force Unsorted Bookmarks
+            if dest is lone_folder:
+                if lone_folder.name == "Unsorted Bookmarks":
+                    # Can't merge with itself; leave it
+                    pct = (done / total) * 100
+                    bar_filled = int(pct / 5)
+                    bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
+                    pct = (done / total) * 100
+                    bar_filled = int(pct / 5)
+                    bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
+                    print(
+                        f"\r  Pass {pass_num} [{bar}] {pct:5.1f}%"
+                        f"  {done}/{total} processed"
+                        f"  {moves_this_pass} moved",
+                        end="",
+                        flush=True,
+                    )
+                    continue
+                dest_path = "Unsorted Bookmarks"
+                dest = _get_or_create_nested(root, dest_path)
             pct = (done / total) * 100
             bar_filled = int(pct / 5)
             bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
             print(
                 f"\r  Pass {pass_num} [{bar}] {pct:5.1f}%"
                 f"  {done}/{total} processed"
-                f"  {total_moved + moves_this_pass} moved",
+                f"  {moves_this_pass} moved",
                 end="",
                 flush=True,
             )
-            if dest is lone_folder:
-                continue
             _move_bookmark(lone_folder, dest, bm)
             if not lone_folder.children:
                 _delete_empty_folder(parent, lone_folder)
             moves_this_pass += 1
             total_moved += 1
-        print(flush=True)
+        print(f"    ({total_moved} total moved so far)", flush=True)
         _prune_empty_folders(root)
         if moves_this_pass == 0:
             break
@@ -1364,6 +1408,101 @@ def write_bookmarks(root: Folder, path: str) -> None:
 
 # ---------------------------------------------------------------------------
 
+_CHROMIUM_EPOCH_OFFSET = 11_644_473_600  # seconds between 1601-01-01 and 1970-01-01
+
+
+def find_browser_bookmark_files() -> list[tuple[str, Path]]:
+    """Return (browser_name, path) for every Chromium Bookmarks JSON found."""
+    home = Path.home()
+    platform = sys.platform
+
+    if platform == "win32":
+        local = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
+        candidates = [
+            ("Microsoft Edge", local / "Microsoft" / "Edge" / "User Data" / "Default" / "Bookmarks"),
+            ("Google Chrome", local / "Google" / "Chrome" / "User Data" / "Default" / "Bookmarks"),
+            ("Brave", local / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Bookmarks"),
+        ]
+    elif platform == "darwin":
+        app_support = home / "Library" / "Application Support"
+        candidates = [
+            ("Microsoft Edge", app_support / "Microsoft Edge" / "Default" / "Bookmarks"),
+            ("Google Chrome", app_support / "Google" / "Chrome" / "Default" / "Bookmarks"),
+            ("Brave", app_support / "BraveSoftware" / "Brave-Browser" / "Default" / "Bookmarks"),
+        ]
+    else:
+        config = home / ".config"
+        candidates = [
+            ("Microsoft Edge", config / "microsoft-edge" / "Default" / "Bookmarks"),
+            ("Google Chrome", config / "google-chrome" / "Default" / "Bookmarks"),
+            ("Brave", config / "BraveSoftware" / "Brave-Browser" / "Default" / "Bookmarks"),
+        ]
+
+    return [(name, path) for name, path in candidates if path.exists()]
+
+
+def _chromium_ts(raw: str) -> str:
+    """Convert Chromium µs-since-1601 timestamp to Unix seconds string."""
+    try:
+        return str(int(raw) // 1_000_000 - _CHROMIUM_EPOCH_OFFSET)
+    except (ValueError, TypeError):
+        return ""
+
+
+def _write_chromium_node(node: dict, lines: list[str], indent: int) -> None:
+    pad = "    " * indent
+    name = _esc(node.get("name", ""))
+    date = _chromium_ts(node.get("date_added", ""))
+    add_date = f' ADD_DATE="{date}"' if date else ""
+
+    if node.get("type") == "url":
+        url = _esc(node.get("url", ""))
+        lines.append(f'{pad}<DT><A HREF="{url}"{add_date}>{name}</A>\n')
+    elif node.get("type") == "folder":
+        last_mod = _chromium_ts(node.get("date_modified", ""))
+        last_modified = f' LAST_MODIFIED="{last_mod}"' if last_mod else ""
+        lines.append(f"{pad}<DT><H3{add_date}{last_modified}>{name}</H3>\n")
+        lines.append(f"{pad}<DL><p>\n")
+        for child in node.get("children", []):
+            _write_chromium_node(child, lines, indent + 1)
+        lines.append(f"{pad}</DL><p>\n")
+
+
+def convert_chromium_json_to_html(json_path: Path, output_path: Path) -> None:
+    """Read a Chromium Bookmarks JSON file and write Netscape HTML."""
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    roots = data.get("roots", {})
+
+    lines = [HEADER]
+    lines.append("<DL><p>\n")
+
+    root_order = [
+        ("bookmark_bar", "Bookmarks bar", ' PERSONAL_TOOLBAR_FOLDER="true"'),
+        ("other", "Other bookmarks", ""),
+        ("synced", "Mobile bookmarks", ""),
+    ]
+    for key, fallback_name, extra_attrs in root_order:
+        node = roots.get(key)
+        if not node:
+            continue
+        name = _esc(node.get("name", fallback_name))
+        date = _chromium_ts(node.get("date_added", ""))
+        add_date = f' ADD_DATE="{date}"' if date else ""
+        last_mod = _chromium_ts(node.get("date_modified", ""))
+        last_modified = f' LAST_MODIFIED="{last_mod}"' if last_mod else ""
+        lines.append(f"    <DT><H3{add_date}{last_modified}{extra_attrs}>{name}</H3>\n")
+        lines.append("    <DL><p>\n")
+        for child in node.get("children", []):
+            _write_chromium_node(child, lines, indent=2)
+        lines.append("    </DL><p>\n")
+
+    lines.append("</DL><p>\n")
+    lines.append(FOOTER)
+    output_path.write_text("".join(lines), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1403,6 +1542,13 @@ def main():
         help="Skip AI folder assignment; use keyword rules instead",
     )
     parser.add_argument(
+        "--max-passes",
+        type=int,
+        default=15,
+        metavar="N",
+        help=("Max passes when merging lone folders (default: 15)"),
+    )
+    parser.add_argument(
         "--log", default="bookmark_cleaner.log", help="Log file path"
     )
     args = parser.parse_args()
@@ -1413,14 +1559,7 @@ def main():
         if len(html_files) == 1:
             args.input = str(html_files[0])
             print(f"Auto-detected HTML file: {args.input}")
-        elif len(html_files) == 0:
-            print(
-                "ERROR: No HTML files found in current directory.",
-                file=sys.stderr,
-            )
-            print("Please specify the input file path.", file=sys.stderr)
-            sys.exit(1)
-        else:
+        elif len(html_files) > 1:
             print(
                 "ERROR: Multiple HTML files found in current directory:",
                 file=sys.stderr,
@@ -1429,6 +1568,59 @@ def main():
                 print(f"  - {f}", file=sys.stderr)
             print("Please specify the input file path.", file=sys.stderr)
             sys.exit(1)
+        else:
+            # No HTML file — try to find a browser Bookmarks JSON
+            browsers = find_browser_bookmark_files()
+
+            if len(browsers) == 0:
+                print("No bookmark HTML file found in current directory.", file=sys.stderr)
+                print("No browser bookmark files detected automatically.", file=sys.stderr)
+                supplied = input("Enter path to a bookmarks HTML file (or press Enter to exit): ").strip()
+                if not supplied:
+                    sys.exit(1)
+                supplied_path = Path(supplied).expanduser().resolve()
+                if not supplied_path.exists():
+                    print(f"ERROR: File not found: {supplied_path}", file=sys.stderr)
+                    sys.exit(1)
+                args.input = str(supplied_path)
+
+            elif len(browsers) == 1:
+                bname, bjson = browsers[0]
+                export_path = Path(".") / f"{bname.lower().replace(' ', '_')}_bookmarks_export.html"
+                print(f"Found {bname} bookmarks at: {bjson}")
+                print(f"Auto-exporting to: {export_path}")
+                convert_chromium_json_to_html(bjson, export_path)
+                args.input = str(export_path)
+
+            else:
+                print("Found browser bookmark files:")
+                for i, (bname, bpath) in enumerate(browsers, 1):
+                    print(f"  {i}. {bname}: {bpath}")
+                print(f"  {len(browsers) + 1}. Enter a custom file path")
+                raw = input(f"Select [1–{len(browsers) + 1}] (default 1): ").strip() or "1"
+                try:
+                    choice = int(raw)
+                except ValueError:
+                    print("ERROR: Invalid selection.", file=sys.stderr)
+                    sys.exit(1)
+                if 1 <= choice <= len(browsers):
+                    bname, bjson = browsers[choice - 1]
+                    export_path = Path(".") / f"{bname.lower().replace(' ', '_')}_bookmarks_export.html"
+                    print(f"Exporting {bname} bookmarks to: {export_path}")
+                    convert_chromium_json_to_html(bjson, export_path)
+                    args.input = str(export_path)
+                elif choice == len(browsers) + 1:
+                    supplied = input("Enter path to bookmarks HTML file: ").strip()
+                    if not supplied:
+                        sys.exit(1)
+                    supplied_path = Path(supplied).expanduser().resolve()
+                    if not supplied_path.exists():
+                        print(f"ERROR: File not found: {supplied_path}", file=sys.stderr)
+                        sys.exit(1)
+                    args.input = str(supplied_path)
+                else:
+                    print("ERROR: Invalid selection.", file=sys.stderr)
+                    sys.exit(1)
 
     # ── Ctrl+C handler — clean exit without traceback ─────────────────────
     stop_event = threading.Event()
@@ -1552,7 +1744,11 @@ def main():
     # ── Merge lone folders ─────────────────────────────────────────────────
     if not args.dry_run:
         print("\nMerging lone folders …")
-        relocated = consolidate_lone_folders(root, use_ai=not args.no_ai)
+        relocated = consolidate_lone_folders(
+            root,
+            use_ai=not args.no_ai,
+            max_passes=args.max_passes,
+        )
         if relocated:
             print(f"  Moved {relocated} bookmark(s) out of lone folders.")
         else:
