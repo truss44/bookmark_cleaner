@@ -7,6 +7,7 @@ A Python command-line tool that parses your exported Edge favorites, removes dea
 ## Features
 
 - **Auto-export from browser** — if no HTML file is present, the tool automatically finds and exports bookmarks from Edge, Chrome, or Brave — no manual export step required
+- **Duplicate removal** — detects bookmarks sharing the same URL and prompts before removing; use `--delete-duplicates` to skip the prompt
 - **Automatic backup** — timestamped copy of the original is always created before any changes
 - **Dead link removal** — checks every URL concurrently; removes 404s, 410s, and unreachable sites
 - **Smart organization** — loose (unfoldered) bookmarks are matched against topic rules and moved into relevant folders and subfolders
@@ -180,8 +181,9 @@ python bookmark_cleaner.py <input_file> [options]
 | `--dry-run`      | off                                | Preview changes without writing any files                     |
 | `--skip-check`   | off                                | Skip URL checks; organize only                                |
 | `--no-ai`        | off                                | Skip AI folder assignment; use built-in keyword rules instead |
-| `--max-passes N` | `15`                               | Max passes when merging lone folders                          |
-| `--log FILE`     | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
+| `--max-passes N`        | `15`                               | Max passes when merging lone folders                          |
+| `--log FILE`            | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
+| `--delete-duplicates`   | off (interactive prompt)           | Remove duplicate URLs without prompting                       |
 
 ### Examples
 
@@ -221,6 +223,12 @@ python bookmark_cleaner.py favorites.html --output my_cleaned_favorites.html
 python bookmark_cleaner.py favorites.html --no-ai
 ```
 
+**Remove duplicate URLs automatically (no prompt)**:
+
+```bash
+python bookmark_cleaner.py favorites.html --delete-duplicates
+```
+
 **Full options example**:
 
 ```bash
@@ -228,6 +236,7 @@ python bookmark_cleaner.py favorites.html \
   --output clean.html \
   --threads 15 \
   --timeout 15 \
+  --delete-duplicates \
   --log results.log
 ```
 

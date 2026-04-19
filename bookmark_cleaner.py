@@ -1586,6 +1586,11 @@ def main():
     parser.add_argument(
         "--log", default="bookmark_cleaner.log", help="Log file path"
     )
+    parser.add_argument(
+        "--delete-duplicates",
+        action="store_true",
+        help="Remove duplicate URLs without prompting",
+    )
     args = parser.parse_args()
 
     # ── Auto-detect HTML file if not specified ─────────────────────────────
@@ -1781,20 +1786,40 @@ def main():
         print("\n  URL checking skipped (--skip-check).")
 
     # ── Remove duplicate bookmarks ─────────────────────────────────────────
+    seen_urls: set[str] = set()
+    dupe_count = 0
+    for bm in collect_all_bookmarks(root):
+        url = bm.href.rstrip("/").lower()
+        if url in seen_urls:
+            dupe_count += 1
+        else:
+            seen_urls.add(url)
+
     removed_dupes: list[Bookmark] = []
-    if not args.dry_run:
-        remove_duplicate_bookmarks(root, set(), removed_dupes)
-        print(f"\nRemoved {len(removed_dupes)} duplicate bookmark(s).")
-    else:
-        seen: set[str] = set()
-        dupe_count = 0
-        for bm in collect_all_bookmarks(root):
-            url = bm.href.rstrip("/").lower()
-            if url in seen:
-                dupe_count += 1
+    if dupe_count > 0:
+        print(f"\nFound {dupe_count} duplicate bookmark(s).")
+        if args.dry_run:
+            print(
+                "  [dry-run] Would remove duplicates if confirmed."
+            )
+        elif args.delete_duplicates:
+            remove_duplicate_bookmarks(root, set(), removed_dupes)
+            print(
+                f"  Removed {len(removed_dupes)} duplicate bookmark(s)."
+            )
+        else:
+            answer = input(
+                "  Delete duplicate bookmarks? [y/N]: "
+            ).strip().lower()
+            if answer in ("y", "yes"):
+                remove_duplicate_bookmarks(root, set(), removed_dupes)
+                print(
+                    f"  Removed {len(removed_dupes)} duplicate bookmark(s)."
+                )
             else:
-                seen.add(url)
-        print(f"\n[dry-run] Would remove {dupe_count} duplicate bookmark(s).")
+                print("  Skipped — duplicates kept.")
+    else:
+        print("\nNo duplicate bookmarks found.")
 
     # ── Organize unfoldered bookmarks ──────────────────────────────────────
     # Refresh after possible removals
