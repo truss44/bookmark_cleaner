@@ -478,10 +478,10 @@ Decision rule — reuse vs. create:
 
 Guidance:
 - DEFAULT to creating a new folder when in doubt. Specificity beats reuse.
-- You MAY nest sub-folders up to 4 levels deep using "/" as a separator
-  (e.g. "Technology/DevOps/CI-CD/GitHub Actions").
-- Use deeper nesting when it meaningfully narrows the topic — do not nest
-  just for the sake of it.
+- You MAY nest sub-folders up to 3 levels deep using "/" as a separator
+  (e.g. "Technology/DevOps/CI-CD").
+- Do NOT go beyond 3 levels — deeper nesting creates too many lone
+  bookmarks and makes navigation harder.
 - Never force bookmarks into a vague existing folder just to avoid
   creating a new one.
 - Still apply the 2-bookmark minimum rule: every folder must contain
@@ -493,7 +493,7 @@ Below is a JSON array of bookmarks, each with an id, title, and URL.
 {existing_section}
 Your task:
 1. Analyse all bookmarks and decide on the best set of top-level folders
-   and sub-folders (up to 4 levels deep) that would logically group them.
+   and sub-folders (up to 3 levels deep) that would logically group them.
    Folder names MUST be broad topic or category names (e.g. "React",
    "DevOps", "Crypto", "Fitness") — NEVER use a bookmark's own title,
    a package/library name, a website name, or a place name as a folder
@@ -1043,9 +1043,9 @@ def _sanitize_folder_path(path: str) -> str:
 
 def _get_or_create_nested(parent: Folder, path: str) -> Folder:
     """Given 'AI Tools/Image Generation', return (or create)
-    the nested folder."""
+    the nested folder. Maximum 3 levels deep."""
     path = _sanitize_folder_path(path)
-    parts = [p.strip() for p in path.split("/")]
+    parts = [p.strip() for p in path.split("/")][:3]
     node = parent
     for part in parts:
         node = _get_or_create_folder(node, part)
