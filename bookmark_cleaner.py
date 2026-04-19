@@ -1880,7 +1880,7 @@ def main():
     if not args.dry_run:
         write_bookmarks(root, str(output_path))
         print(f"\n✓ Cleaned bookmarks written to: {output_path}")
-        _print_summary(root, removed_dead, output_path)
+        _print_summary(root, removed_dead, removed_dupes, output_path)
     else:
         print("\n[dry-run] No output file written.")
     print(f"\nDetailed log: {args.log}")
@@ -1901,13 +1901,16 @@ def _count_folders(node) -> int:
     return count
 
 
-def _print_summary(root: Folder, removed: list, output: Path) -> None:
+def _print_summary(
+    root: Folder, removed: list, dupes: list, output: Path
+) -> None:
     all_bms = collect_all_bookmarks(root)
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
     print(f"  Bookmarks remaining : {len(all_bms)}")
     print(f"  Dead links removed  : {len(removed)}")
+    print(f"  Duplicates removed  : {len(dupes)}")
     print(f"  Folders in output   : {_count_folders(root)}")
     print(f"  Output file size    : {output.stat().st_size:,} bytes")
     print("=" * 60)
