@@ -1933,8 +1933,8 @@ def main():
         print(
             f"\nChecking {len(all_bookmarks)} URLs "
             f"({args.threads} threads, {args.timeout}s timeout) …"
+            "\n  (This may take several minutes for large collections)\n"
         )
-        print("  (This may take several minutes for large collections)\n")
         t0 = time.time()
         check_all_bookmarks(
             all_bookmarks,
