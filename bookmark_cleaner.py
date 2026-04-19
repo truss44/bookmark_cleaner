@@ -1824,7 +1824,7 @@ def main():
                     print("ERROR: Invalid selection.", file=sys.stderr)
                     sys.exit(1)
 
-    # ── Ctrl+C handler — clean exit without traceback ─────────────────────
+    # ── Ctrl+C / Escape handler — clean exit without traceback ────────────
     stop_event = threading.Event()
 
     def _handle_interrupt(sig, frame):
@@ -1839,6 +1839,53 @@ def main():
     import signal
 
     signal.signal(signal.SIGINT, _handle_interrupt)
+
+    def _watch_escape(event: threading.Event) -> None:
+        """Background thread: set event when Escape is pressed."""
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                while not event.is_set():
+                    if msvcrt.kbhit():
+                        ch = msvcrt.getwch()
+                        if ch == "\x1b":
+                            if not event.is_set():
+                                print(
+                                    "\n\n  Escape pressed — finishing "
+                                    "in-flight requests and exiting "
+                                    "cleanly …",
+                                    flush=True,
+                                )
+                                event.set()
+                            return
+            else:
+                import termios
+                import tty
+                fd = sys.stdin.fileno()
+                old = termios.tcgetattr(fd)
+                try:
+                    tty.setraw(fd)
+                    while not event.is_set():
+                        ch = sys.stdin.read(1)
+                        if ch == "\x1b":
+                            if not event.is_set():
+                                print(
+                                    "\n\n  Escape pressed — finishing "
+                                    "in-flight requests and exiting "
+                                    "cleanly …",
+                                    flush=True,
+                                )
+                                event.set()
+                            return
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception:
+            pass
+
+    escape_thread = threading.Thread(
+        target=_watch_escape, args=(stop_event,), daemon=True
+    )
+    escape_thread.start()
 
     # ── Logging setup ──────────────────────────────────────────────────────
     logging.basicConfig(
