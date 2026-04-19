@@ -1069,7 +1069,7 @@ def organize_unfoldered(
     for bm in orphans:
         # Prefer AI assignment, fall back to keyword rules
         if ai_map and bm.href in ai_map:
-            folder_path = ai_map[bm.href]
+            folder_path = _sanitize_folder_path(ai_map[bm.href])
         else:
             folder_path = _suggest_folder_rules(bm)
 
@@ -1780,11 +1780,12 @@ def main():
             print(f"  → '{folder}': {len(bms)} bookmark(s)")
     else:
         for bm in orphans:
-            fp = (
+            raw_fp = (
                 (ai_map or {}).get(bm.href)
                 or _suggest_folder_rules(bm)
                 or "Unsorted Bookmarks"
             )
+            fp = _sanitize_folder_path(raw_fp)
             print(f"  [dry-run] '{bm.title[:60]}' → {fp}")
 
     # ── Merge lone folders ─────────────────────────────────────────────────
