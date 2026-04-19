@@ -1840,12 +1840,24 @@ def main():
 
     signal.signal(signal.SIGINT, _handle_interrupt)
 
-    def _watch_escape(event: threading.Event) -> None:
-        """Background thread: set event when Escape is pressed."""
+    escape_pause = threading.Event()  # set = paused
+
+    def _watch_escape(
+        event: threading.Event, pause: threading.Event
+    ) -> None:
+        """Background thread: set event when Escape is pressed.
+
+        Pauses (restores terminal) while pause is set so that normal
+        input() calls in the main thread work unobstructed.
+        """
         try:
             if sys.platform == "win32":
                 import msvcrt
                 while not event.is_set():
+                    if pause.is_set():
+                        while pause.is_set() and not event.is_set():
+                            time.sleep(0.05)
+                        continue
                     if msvcrt.kbhit():
                         ch = msvcrt.getwch()
                         if ch == "\x1b":
@@ -1858,7 +1870,9 @@ def main():
                                 )
                                 event.set()
                             return
+                    time.sleep(0.05)
             else:
+                import select
                 import termios
                 import tty
                 fd = sys.stdin.fileno()
@@ -1866,6 +1880,21 @@ def main():
                 try:
                     tty.setcbreak(fd)
                     while not event.is_set():
+                        if pause.is_set():
+                            termios.tcsetattr(
+                                fd, termios.TCSADRAIN, old
+                            )
+                            while pause.is_set() and not event.is_set():
+                                time.sleep(0.05)
+                            if event.is_set():
+                                return
+                            tty.setcbreak(fd)
+                            continue
+                        r, _, _ = select.select(
+                            [sys.stdin], [], [], 0.1
+                        )
+                        if not r:
+                            continue
                         ch = sys.stdin.read(1)
                         if ch == "\x1b":
                             if not event.is_set():
@@ -1883,7 +1912,9 @@ def main():
             pass
 
     escape_thread = threading.Thread(
-        target=_watch_escape, args=(stop_event,), daemon=True
+        target=_watch_escape,
+        args=(stop_event, escape_pause),
+        daemon=True,
     )
     escape_thread.start()
 
@@ -1989,9 +2020,13 @@ def main():
                 f"  Removed {len(removed_dupes)} duplicate bookmark(s)."
             )
         else:
-            answer = input(
-                "  Delete duplicate bookmarks? [y/N]: "
-            ).strip().lower()
+            escape_pause.set()
+            try:
+                answer = input(
+                    "  Delete duplicate bookmarks? [y/N]: "
+                ).strip().lower()
+            finally:
+                escape_pause.clear()
             if answer in ("y", "yes"):
                 remove_duplicate_bookmarks(root, set(), removed_dupes)
                 print(
