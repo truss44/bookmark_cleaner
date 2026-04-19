@@ -1479,6 +1479,48 @@ def merge_similar_folders(
 
 
 # ---------------------------------------------------------------------------
+# Hollow-folder flattening
+# ---------------------------------------------------------------------------
+
+
+def flatten_hollow_folders(node: Folder) -> int:
+    """Collapse subfolders whose parent has no direct bookmarks.
+
+    If a folder contains only subfolders (no direct bookmark children),
+    move all bookmarks from those subfolders up into the folder and
+    delete the now-empty subfolders. Repeats bottom-up so deeply nested
+    hollow chains are fully resolved. Returns count of folders removed.
+    """
+    removed = 0
+    for child in list(node.children):
+        if isinstance(child, Folder):
+            removed += flatten_hollow_folders(child)
+
+    for child in list(node.children):
+        if not isinstance(child, Folder):
+            continue
+        direct_bookmarks = [
+            c for c in child.children if isinstance(c, Bookmark)
+        ]
+        if direct_bookmarks:
+            continue
+        # hollow — pull all bookmarks from immediate subfolders up
+        for sub in list(child.children):
+            if not isinstance(sub, Folder):
+                continue
+            for bm in list(sub.children):
+                if isinstance(bm, Bookmark):
+                    child.children.append(bm)
+                    sub.children.remove(bm)
+        _prune_empty_folders(child)
+        removed += 1 if not any(
+            isinstance(c, Folder) for c in child.children
+        ) else 0
+
+    return removed
+
+
+# ---------------------------------------------------------------------------
 # Alphabetical sort
 # ---------------------------------------------------------------------------
 
@@ -2125,6 +2167,10 @@ def main():
                     print(f"    {joined} → '{canonical}'")
         else:
             print("  No similar folders found.")
+
+    # ── Flatten hollow folders (no direct bookmarks, only subfolders) ─────
+    if not args.dry_run:
+        flatten_hollow_folders(root)
 
     # ── Sort all folders and bookmarks alphabetically ──────────────────────
     if not args.dry_run:
