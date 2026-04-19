@@ -1253,17 +1253,26 @@ def _ai_best_folder_for_bookmark(
 
 
 def consolidate_lone_folders(
-    root: Folder, use_ai: bool = True, max_passes: int = 15
+    root: Folder,
+    use_ai: bool = True,
+    max_passes: int = 15,
+    stop_event: Optional[threading.Event] = None,
 ) -> int:
     """
     Detect folders with exactly one bookmark, relocate that bookmark to the
     best matching existing folder, and delete the now-empty folder.
-    Repeats until no lone folders remain.
+    Repeats until no lone folders remain or stop_event is set.
     Returns count of relocated bookmarks.
     """
     total_moved = 0
     pass_num = 0
     while pass_num < max_passes:
+        if stop_event and stop_event.is_set():
+            print(
+                "\n  Interrupted — stopping after current pass.",
+                flush=True,
+            )
+            break
         candidates = collect_lone_folders(root)
         if not candidates:
             break
@@ -1978,6 +1987,7 @@ def main():
             root,
             use_ai=not args.no_ai,
             max_passes=args.max_passes,
+            stop_event=stop_event,
         )
         if relocated:
             print(f"  Moved {relocated} bookmark(s) out of lone folders.")
