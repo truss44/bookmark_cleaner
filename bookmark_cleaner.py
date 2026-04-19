@@ -1433,6 +1433,7 @@ def _merge_folder_into(
     for child in list(src.children):
         if isinstance(child, Bookmark):
             dest.children.append(child)
+            src.children.remove(child)
         elif isinstance(child, Folder):
             existing = next(
                 (
@@ -1442,10 +1443,11 @@ def _merge_folder_into(
                 None,
             )
             if existing:
+                # recursive call removes child from src.children itself
                 _merge_folder_into(src, child, existing)
             else:
                 dest.children.append(child)
-        src.children.remove(child)
+                src.children.remove(child)
     if src in parent.children:
         parent.children.remove(src)
 
