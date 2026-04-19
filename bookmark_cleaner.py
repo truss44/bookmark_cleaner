@@ -23,13 +23,13 @@ Options:
 
 AI Providers (set via environment variables):
     - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
-             default: gpt-5.4-mini)
+             default: gpt-5.4-nano)
     - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
                  default: claude-haiku-4-5)
     - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
              default: gemini-3.1-flash-lite-preview)
     - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
-                default: openai/gpt-5.4-mini)
+                default: openai/gpt-5.4-nano)
 
 Output:
     - <backup>_YYYYMMDD_HHMMSS.html   — original file, untouched
@@ -371,7 +371,7 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
         return (
             "openai",
             os.getenv("OPENAI_API_KEY"),
-            os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+            os.getenv("OPENAI_MODEL", "gpt-5.4-nano"),
         )
     if Anthropic and os.getenv("ANTHROPIC_API_KEY"):
         return (
@@ -389,7 +389,7 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
         return (
             "openrouter",
             os.getenv("OPENROUTER_API_KEY"),
-            os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-mini"),
+            os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-nano"),
         )
     return None
 
@@ -421,7 +421,7 @@ def _call_ai(provider: str, api_key: str, model: str, prompt: str) -> str:
     raise ValueError(f"Unknown provider: {provider}")
 
 
-def build_ai_folder_taxonomy(
+def build_ai_folder_structure(
     bookmarks: list[Bookmark],
     existing_folders: Optional[list[str]] = None,
 ) -> dict[str, str]:
@@ -435,13 +435,13 @@ def build_ai_folder_taxonomy(
 
     Supports multiple AI providers via environment variables:
     - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
-             default: gpt-5.4-mini)
+             default: gpt-5.4-nano)
     - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
                  default: claude-haiku-4-5)
     - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
              default: gemini-3.1-flash-lite-preview)
     - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
-                default: openai/gpt-5.4-mini)
+                default: openai/gpt-5.4-nano)
 
     Falls back to rule-based assignment if no API key is set
     or the API call fails.
@@ -524,7 +524,7 @@ Bookmarks:
 """
 
     print(
-        f"  Sending bookmark list to {provider}/{model} for folder taxonomy …"
+        f"  Sending bookmark list to {provider}/{model} for folder grouping …"
     )
     try:
         raw = _call_ai(provider, api_key, model, prompt)
@@ -1170,11 +1170,11 @@ def _prune_empty_folders(node: Folder) -> None:
                 node.children.remove(child)
 
 
-def collect_singleton_folders(
+def collect_lone_folders(
     root: Folder,
 ) -> list[tuple[Folder, Folder, Bookmark]]:
     """
-    Return (parent, singleton_folder, lone_bookmark) for every folder that
+    Return (parent, lone_folder, lone_bookmark) for every folder that
     contains exactly one child and that child is a Bookmark (not a sub-folder).
     The root itself is never returned as a candidate.
     """
@@ -1185,7 +1185,7 @@ def collect_singleton_folders(
             if lone is not None and isinstance(lone, Bookmark):
                 results.append((root, child, lone))
             else:
-                results.extend(collect_singleton_folders(child))
+                results.extend(collect_lone_folders(child))
     return results
 
 
@@ -1225,21 +1225,24 @@ def _ai_best_folder_for_bookmark(
         return None
 
 
-def consolidate_singleton_folders(root: Folder, use_ai: bool = True) -> int:
+def consolidate_lone_folders(root: Folder, use_ai: bool = True) -> int:
     """
     Detect folders with exactly one bookmark, relocate that bookmark to the
     best matching existing folder, and delete the now-empty folder.
-    Repeats until no singleton folders remain.
+    Repeats until no lone folders remain.
     Returns count of relocated bookmarks.
     """
     total_moved = 0
+    pass_num = 0
     while True:
-        candidates = collect_singleton_folders(root)
+        candidates = collect_lone_folders(root)
         if not candidates:
             break
+        pass_num += 1
+        total = len(candidates)
         folder_names = _collect_folder_names(root)
         moves_this_pass = 0
-        for parent, singleton_folder, bm in candidates:
+        for done, (parent, lone_folder, bm) in enumerate(candidates, start=1):
             dest_path: Optional[str] = None
             if use_ai:
                 dest_path = _ai_best_folder_for_bookmark(bm, folder_names)
@@ -1248,13 +1251,24 @@ def consolidate_singleton_folders(root: Folder, use_ai: bool = True) -> int:
             if dest_path is None:
                 dest_path = "Unsorted Bookmarks"
             dest = _get_or_create_nested(root, dest_path)
-            if dest is singleton_folder:
+            pct = (done / total) * 100
+            bar_filled = int(pct / 5)
+            bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
+            print(
+                f"\r  Pass {pass_num} [{bar}] {pct:5.1f}%"
+                f"  {done}/{total} processed"
+                f"  {total_moved + moves_this_pass} moved",
+                end="",
+                flush=True,
+            )
+            if dest is lone_folder:
                 continue
-            _move_bookmark(singleton_folder, dest, bm)
-            if not singleton_folder.children:
-                _delete_empty_folder(parent, singleton_folder)
+            _move_bookmark(lone_folder, dest, bm)
+            if not lone_folder.children:
+                _delete_empty_folder(parent, lone_folder)
             moves_this_pass += 1
             total_moved += 1
+        print(flush=True)
         _prune_empty_folders(root)
         if moves_this_pass == 0:
             break
@@ -1518,7 +1532,7 @@ def main():
     ai_map: Optional[dict[str, str]] = None
     if not args.no_ai and orphans:
         existing_folders = _collect_folder_names(root)
-        ai_map = build_ai_folder_taxonomy(
+        ai_map = build_ai_folder_structure(
             orphans, existing_folders=existing_folders or None
         )
 
@@ -1535,24 +1549,22 @@ def main():
             )
             print(f"  [dry-run] '{bm.title[:60]}' → {fp}")
 
-    # ── Consolidate singleton folders ──────────────────────────────────────
+    # ── Merge lone folders ─────────────────────────────────────────────────
     if not args.dry_run:
-        print("\nConsolidating singleton folders …")
-        relocated = consolidate_singleton_folders(root, use_ai=not args.no_ai)
+        print("\nMerging lone folders …")
+        relocated = consolidate_lone_folders(root, use_ai=not args.no_ai)
         if relocated:
-            print(
-                f"  Relocated {relocated} bookmark(s) from singleton folders."
-            )
+            print(f"  Moved {relocated} bookmark(s) out of lone folders.")
         else:
-            print("  No singleton folders found.")
+            print("  No lone folders found.")
     else:
-        singletons = collect_singleton_folders(root)
-        if singletons:
+        lone_folders = collect_lone_folders(root)
+        if lone_folders:
             print(
-                f"\n[dry-run] {len(singletons)} singleton folder(s) "
-                "would be consolidated:"
+                f"\n[dry-run] {len(lone_folders)} lone folder(s) "
+                "would be merged:"
             )
-            for _, sf, bm in singletons:
+            for _, sf, bm in lone_folders:
                 print(
                     f"  '{sf.name}' → bookmark "
                     f"'{bm.title[:60]}' would be relocated"
