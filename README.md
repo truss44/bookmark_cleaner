@@ -53,7 +53,7 @@ The script uses AI to intelligently assign your bookmarks to folders. Choose one
 
    ```
    OPENAI_API_KEY=sk-proj-...
-   OPENAI_MODEL=gpt-5.4-nano
+   OPENAI_MODEL=gpt-5.4-mini
    ```
 
    **Option 2: Anthropic/Claude**
@@ -74,14 +74,14 @@ The script uses AI to intelligently assign your bookmarks to folders. Choose one
 
    ```
    OPENROUTER_API_KEY=sk-or-...
-   OPENROUTER_MODEL=openai/gpt-5.4-nano
+   OPENROUTER_MODEL=openai/gpt-5.4-mini
    ```
 
    Configuration details:
-   - **OpenAI**: Model defaults to `gpt-5.4-nano`. You can use any OpenAI model such as `gpt-4o`, `gpt-4o-mini`, `o1-mini`, etc.
+   - **OpenAI**: Model defaults to `gpt-5.4-mini`. You can use any OpenAI model such as `gpt-4o`, `gpt-4o-mini`, `o1-mini`, etc.
    - **Anthropic**: Model defaults to `claude-haiku-4-5`. You can use any Claude model.
    - **Gemini**: Model defaults to `gemini-3.1-flash-lite-preview`. You can also use `GOOGLE_API_KEY` as an alternative to `GEMINI_API_KEY`.
-   - **OpenRouter**: Model defaults to `openai/gpt-5.4-nano`. OpenRouter provides access to hundreds of models from various providers via a single API. See [openrouter.ai/models](https://openrouter.ai/models) for available models.
+   - **OpenRouter**: Model defaults to `openai/gpt-5.4-mini`. OpenRouter provides access to hundreds of models from various providers via a single API. See [openrouter.ai/models](https://openrouter.ai/models) for available models.
 
 3. The run scripts (`run.ps1` / `run.sh`) will automatically install the appropriate AI SDK based on which API key you configure, and the Python script will load `.env` automatically via `python-dotenv`.
 
@@ -279,10 +279,10 @@ After URL checking is complete, all surviving unfoldered bookmarks are sent to t
 
 The script automatically detects which AI provider you've configured (OpenAI, Anthropic, Gemini, or OpenRouter) and uses the appropriate API. Default models:
 
-- OpenAI: `gpt-5.4-nano`
+- OpenAI: `gpt-5.4-mini`
 - Anthropic: `claude-haiku-4-5`
 - Gemini: `gemini-3.1-flash-lite-preview`
-- OpenRouter: `openai/gpt-5.4-nano` (access to hundreds of models via one API)
+- OpenRouter: `openai/gpt-5.4-mini` (access to hundreds of models via one API)
 
 The AI creates folders and subfolders appropriate to what it sees — for example:
 

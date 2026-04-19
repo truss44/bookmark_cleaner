@@ -23,13 +23,13 @@ Options:
 
 AI Providers (set via environment variables):
     - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
-             default: gpt-5.4-nano)
+             default: gpt-5.4-mini)
     - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
                  default: claude-haiku-4-5)
     - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
              default: gemini-3.1-flash-lite-preview)
     - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
-                default: openai/gpt-5.4-nano)
+                default: openai/gpt-5.4-mini)
 
 Output:
     - <backup>_YYYYMMDD_HHMMSS.html   — original file, untouched
@@ -371,7 +371,7 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
         return (
             "openai",
             os.getenv("OPENAI_API_KEY"),
-            os.getenv("OPENAI_MODEL", "gpt-5.4-nano"),
+            os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
         )
     if Anthropic and os.getenv("ANTHROPIC_API_KEY"):
         return (
@@ -389,7 +389,7 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
         return (
             "openrouter",
             os.getenv("OPENROUTER_API_KEY"),
-            os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-nano"),
+            os.getenv("OPENROUTER_MODEL", "openai/gpt-5.4-mini"),
         )
     return None
 
@@ -435,13 +435,13 @@ def build_ai_folder_taxonomy(
 
     Supports multiple AI providers via environment variables:
     - OpenAI: OPENAI_API_KEY (model: OPENAI_MODEL,
-             default: gpt-5.4-nano)
+             default: gpt-5.4-mini)
     - Anthropic: ANTHROPIC_API_KEY (model: ANTHROPIC_MODEL,
                  default: claude-haiku-4-5)
     - Gemini: GEMINI_API_KEY or GOOGLE_API_KEY (model: GEMINI_MODEL,
              default: gemini-3.1-flash-lite-preview)
     - OpenRouter: OPENROUTER_API_KEY (model: OPENROUTER_MODEL,
-                default: openai/gpt-5.4-nano)
+                default: openai/gpt-5.4-mini)
 
     Falls back to rule-based assignment if no API key is set
     or the API call fails.
@@ -494,8 +494,11 @@ Below is a JSON array of bookmarks, each with an id, title, and URL.
 Your task:
 1. Analyse all bookmarks and decide on the best set of top-level folders
    and sub-folders (up to 4 levels deep) that would logically group them.
-   Be specific and meaningful — avoid generic names like "Miscellaneous"
-   unless truly needed.
+   Folder names MUST be broad topic or category names (e.g. "React",
+   "DevOps", "Crypto", "Fitness") — NEVER use a bookmark's own title,
+   a package/library name, a website name, or a place name as a folder
+   name unless it represents a whole category of related content.
+   Avoid generic names like "Miscellaneous" unless truly needed.
    Use a catch-all folder called "Unsorted Bookmarks" only for items
    that genuinely defy categorisation.
 2. Assign every bookmark to exactly one folder path using "/" as a separator
@@ -1248,7 +1251,8 @@ def consolidate_singleton_folders(root: Folder, use_ai: bool = True) -> int:
             if dest is singleton_folder:
                 continue
             _move_bookmark(singleton_folder, dest, bm)
-            _delete_empty_folder(parent, singleton_folder)
+            if not singleton_folder.children:
+                _delete_empty_folder(parent, singleton_folder)
             moves_this_pass += 1
             total_moved += 1
         _prune_empty_folders(root)
