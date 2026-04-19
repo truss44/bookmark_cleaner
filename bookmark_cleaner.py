@@ -553,6 +553,130 @@ Bookmarks:
         return {}
 
 
+def build_ai_subfolder_map(
+    folder_name: str,
+    bookmarks: list[Bookmark],
+    existing_subfolders: Optional[list[str]] = None,
+) -> dict[str, str]:
+    """Ask AI to suggest subfolders within an existing folder.
+
+    Returns {href: subfolder_name} where subfolder_name is a single-level
+    name relative to folder_name (e.g. "Gaming", not "Entertainment/Gaming").
+    Returns folder_name itself for bookmarks that should stay at that level.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return {}
+    provider, api_key, model = prov
+
+    bm_list = [
+        {"id": i, "title": bm.title.strip(), "url": bm.href}
+        for i, bm in enumerate(bookmarks)
+    ]
+
+    existing_part = ""
+    if existing_subfolders:
+        existing_part = (
+            f"\nExisting sub-folders already inside '{folder_name}':\n"
+            f"{json.dumps(existing_subfolders, ensure_ascii=False)}\n"
+            "Prefer reusing these if they are a strong, specific match.\n"
+        )
+
+    prompt = (
+        f"These bookmarks are currently all inside the folder "
+        f"'{folder_name}'.\n"
+        f"{existing_part}"
+        "Your task:\n"
+        "1. Identify natural topic sub-groups among these bookmarks and "
+        "assign each to a sub-folder name (single level, no '/' nesting).\n"
+        "2. Sub-folder names must be concise topic labels "
+        "(e.g. 'Gaming', 'Movies', 'Recipes').\n"
+        "3. Only create a sub-folder if AT LEAST 2 bookmarks belong to it.\n"
+        "4. If a bookmark fits better staying directly in "
+        f"'{folder_name}', return exactly '{folder_name}' for it.\n"
+        "5. Do NOT invent sub-folders for singletons — group with the "
+        "closest match or keep at the parent level.\n"
+        "6. Return ONLY a valid JSON object mapping each numeric id "
+        "(as a string key) to the sub-folder name string.\n"
+        "No explanation, no markdown, no extra keys.\n\n"
+        "Example output format:\n"
+        '{"0": "Gaming", "1": "Gaming", "2": "' + folder_name + '"}\n\n'
+        f"Bookmarks:\n{json.dumps(bm_list, ensure_ascii=False)}\n"
+    )
+
+    try:
+        raw = _call_ai(provider, api_key, model, prompt)
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+            raw = raw.rsplit("```", 1)[0].strip()
+        mapping = json.loads(raw)
+        result: dict[str, str] = {}
+        for idx_str, sub in mapping.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(bookmarks):
+                result[bookmarks[idx].href] = sub
+        return result
+    except Exception:
+        return {}
+
+
+def subfolderize_existing_folders(
+    root: Folder, use_ai: bool = True, min_bookmarks: int = 3
+) -> dict[str, int]:
+    """For every folder with enough direct bookmarks, create sub-folders.
+
+    Collects direct bookmark children of each folder, asks AI to suggest
+    sub-folder groupings, and moves bookmarks accordingly.
+    Returns {folder_path: count_moved}.
+    """
+    moved_counts: dict[str, int] = {}
+
+    def _process(node: Folder, path: str) -> None:
+        direct_bms = [
+            c for c in node.children if isinstance(c, Bookmark)
+        ]
+        if len(direct_bms) >= min_bookmarks and use_ai:
+            existing_subs = [
+                c.name
+                for c in node.children
+                if isinstance(c, Folder)
+            ]
+            sub_map = build_ai_subfolder_map(
+                node.name, direct_bms,
+                existing_subfolders=existing_subs or None,
+            )
+            count = 0
+            for bm in list(direct_bms):
+                suggested = sub_map.get(bm.href, "").strip()
+                if (
+                    not suggested
+                    or suggested == node.name
+                    or "/" in suggested
+                ):
+                    continue
+                target = _get_or_create_folder(node, suggested)
+                if target is node:
+                    continue
+                node.children.remove(bm)
+                target.children.append(bm)
+                count += 1
+            if count:
+                moved_counts[path] = count
+
+        for child in list(node.children):
+            if isinstance(child, Folder):
+                child_path = (
+                    f"{path}/{child.name}" if path else child.name
+                )
+                _process(child, child_path)
+
+    for child in list(root.children):
+        if isinstance(child, Folder):
+            _process(child, child.name)
+
+    return moved_counts
+
+
 # Rule-based fallback organizer (used when AI is unavailable)
 # ---------------------------------------------------------------------------
 
@@ -2120,6 +2244,21 @@ def main():
             )
             fp = _sanitize_folder_path(raw_fp)
             print(f"  [dry-run] '{bm.title[:60]}' → {fp}")
+
+    # ── Sub-folder pass: organise bookmarks within existing folders ────────
+    if not args.dry_run and not args.no_ai:
+        print("\nCreating sub-folders within existing folders …")
+        sub_counts = subfolderize_existing_folders(
+            root, use_ai=True
+        )
+        if sub_counts:
+            for folder_path, count in sorted(sub_counts.items()):
+                print(
+                    f"  '{folder_path}': {count} bookmark(s) "
+                    "moved into sub-folders"
+                )
+        else:
+            print("  No sub-folder groupings found.")
 
     # ── Merge lone folders ─────────────────────────────────────────────────
     if not args.dry_run:
