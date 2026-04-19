@@ -2100,6 +2100,22 @@ def main():
     )
     escape_thread.start()
 
+    # Restore terminal on exit — daemon threads are killed abruptly so
+    # the thread's finally block is not guaranteed to run.
+    if sys.platform != "win32":
+        import atexit
+        import termios as _termios
+        try:
+            _saved_term = _termios.tcgetattr(sys.stdin.fileno())
+            atexit.register(
+                _termios.tcsetattr,
+                sys.stdin.fileno(),
+                _termios.TCSADRAIN,
+                _saved_term,
+            )
+        except Exception:
+            pass
+
     # ── Logging setup ──────────────────────────────────────────────────────
     logging.basicConfig(
         level=logging.INFO,
