@@ -11,6 +11,7 @@ A Python command-line tool that parses your exported Edge favorites, removes dea
 - **Automatic backup** — timestamped copy of the original is always created before any changes
 - **Dead link removal** — checks every URL concurrently; removes 404s, 410s, and unreachable sites
 - **Smart organization** — loose (unfoldered) bookmarks are matched against topic rules and moved into relevant folders and subfolders
+- **Similar folder merging** — AI identifies folders covering the same topic (e.g. "Health", "Health Sites" → "Health & Fitness") and merges them automatically
 - **Lone folder merging** — folders with only one bookmark are detected and that bookmark is moved to the most relevant existing folder; empty folders are deleted
 - **Alphabetical sorting** — all folders and bookmarks are sorted alphabetically after organization (folders first, then bookmarks)
 - **Edge-compatible output** — writes standard Netscape Bookmark HTML that Edge imports natively
@@ -325,6 +326,8 @@ The AI creates folders and subfolders appropriate to what it sees — for exampl
 - `Finance & Crypto/Crypto`
 - `Unsorted Bookmarks` _(catch-all for anything it can't categorize)_
 
+Folder nesting is capped at **3 levels deep** to prevent overly narrow folders with only one bookmark.
+
 Because the model sees the whole collection at once, it can create folders that reflect your specific bookmarks rather than a generic preset list.
 
 ### Rule-Based Fallback
@@ -377,6 +380,18 @@ Reduce `--threads` if you hit rate limits; increase `--timeout` if legitimate si
 After all bookmarks are organized into folders, the script scans for lone folders (folders with only one bookmark). The lone bookmark is relocated to the most topically relevant existing folder (using AI or keyword rules), and the now-empty folder is deleted. This repeats for up to `--max-passes` passes (default: 15) or until no lone folders remain.
 
 The AI prompt also instructs the model to avoid creating lone folders in the first place — every folder should contain at least 2 bookmarks.
+
+### Similar Folder Merging
+
+After lone-folder consolidation, the AI scans all top-level folder names and identifies groups that cover the same topic. For each group it picks the most descriptive existing name as canonical and merges the others into it — moving all bookmarks and recursively merging matching subfolders. Skipped when `--no-ai` is set.
+
+### Cancelling a Run
+
+Press **Ctrl+C** or **Escape** at any time to stop cleanly. The script finishes the operation currently in progress (e.g. the current URL-check batch or consolidation pass), writes the output file with whatever progress has been made, and exits. The hint is shown at startup:
+
+```
+(Press Ctrl+C or Escape at any time to cancel cleanly)
+```
 
 ### Alphabetical Sorting
 
