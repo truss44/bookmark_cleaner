@@ -133,6 +133,7 @@ class Folder:
         self.last_modified = last_modified
         self.personal_toolbar_folder = personal_toolbar_folder
         self.children: list = []  # mix of Bookmark and Folder
+        self.original: bool = False  # True = existed in source file
 
     def __repr__(self):
         return f"<Folder {self.name!r} ({len(self.children)} items)>"
@@ -175,6 +176,7 @@ class BookmarkParser(HTMLParser):
                     == "true"
                 ),
             )
+            folder.original = True
             self._stack[-1].children.append(folder)
             self._in_title = True  # next data is the folder name
             self._current_bookmark = None
@@ -1499,6 +1501,8 @@ def flatten_hollow_folders(node: Folder) -> int:
     for child in list(node.children):
         if not isinstance(child, Folder):
             continue
+        if child.original:
+            continue  # never flatten original folders
         direct_bookmarks = [
             c for c in child.children if isinstance(c, Bookmark)
         ]
