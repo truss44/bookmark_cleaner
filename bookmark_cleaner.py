@@ -1133,6 +1133,24 @@ def remove_dead_bookmarks(node, removed: list) -> None:
             remove_dead_bookmarks(child, removed)
 
 
+def remove_duplicate_bookmarks(node: Folder, seen: set, removed: list) -> None:
+    """Walk tree in-place; remove bookmarks whose URL was already seen."""
+    to_remove = []
+    for child in node.children:
+        if isinstance(child, Bookmark):
+            url = child.href.rstrip("/").lower()
+            if url in seen:
+                to_remove.append(child)
+            else:
+                seen.add(url)
+    for bm in to_remove:
+        node.children.remove(bm)
+        removed.append(bm)
+    for child in node.children:
+        if isinstance(child, Folder):
+            remove_duplicate_bookmarks(child, seen, removed)
+
+
 # ---------------------------------------------------------------------------
 # Singleton folder consolidation
 # ---------------------------------------------------------------------------
@@ -1761,6 +1779,22 @@ def main():
             print(f"  [dry-run] Would remove {len(dead)} dead bookmarks.")
     else:
         print("\n  URL checking skipped (--skip-check).")
+
+    # ── Remove duplicate bookmarks ─────────────────────────────────────────
+    removed_dupes: list[Bookmark] = []
+    if not args.dry_run:
+        remove_duplicate_bookmarks(root, set(), removed_dupes)
+        print(f"\nRemoved {len(removed_dupes)} duplicate bookmark(s).")
+    else:
+        seen: set[str] = set()
+        dupe_count = 0
+        for bm in collect_all_bookmarks(root):
+            url = bm.href.rstrip("/").lower()
+            if url in seen:
+                dupe_count += 1
+            else:
+                seen.add(url)
+        print(f"\n[dry-run] Would remove {dupe_count} duplicate bookmark(s).")
 
     # ── Organize unfoldered bookmarks ──────────────────────────────────────
     # Refresh after possible removals
