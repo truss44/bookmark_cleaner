@@ -173,17 +173,17 @@ python bookmark_cleaner.py <input_file> [options]
 
 ### Options
 
-| Option           | Default                            | Description                                                   |
-| ---------------- | ---------------------------------- | ------------------------------------------------------------- |
-| `--output FILE`  | `<input>_cleaned_<timestamp>.html` | Path for the output file                                      |
-| `--threads N`    | `20`                               | Number of concurrent URL check workers                        |
-| `--timeout N`    | `10`                               | Per-URL timeout in seconds                                    |
-| `--dry-run`      | off                                | Preview changes without writing any files                     |
-| `--skip-check`   | off                                | Skip URL checks; organize only                                |
-| `--no-ai`        | off                                | Skip AI folder assignment; use built-in keyword rules instead |
-| `--max-passes N`        | `15`                               | Max passes when merging lone folders                          |
-| `--log FILE`            | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
-| `--delete-duplicates`   | off (interactive prompt)           | Remove duplicate URLs without prompting                       |
+| Option                | Default                            | Description                                                   |
+| --------------------- | ---------------------------------- | ------------------------------------------------------------- |
+| `--output FILE`       | `<input>_cleaned_<timestamp>.html` | Path for the output file                                      |
+| `--threads N`         | `20`                               | Number of concurrent URL check workers                        |
+| `--timeout N`         | `10`                               | Per-URL timeout in seconds                                    |
+| `--dry-run`           | off                                | Preview changes without writing any files                     |
+| `--skip-check`        | off                                | Skip URL checks; organize only                                |
+| `--no-ai`             | off                                | Skip AI folder assignment; use built-in keyword rules instead |
+| `--max-passes N`      | `15`                               | Max passes when merging lone folders                          |
+| `--log FILE`          | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
+| `--delete-duplicates` | off (interactive prompt)           | Remove duplicate URLs without prompting                       |
 
 ### Examples
 
