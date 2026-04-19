@@ -133,6 +133,7 @@ class Folder:
         self.last_modified = last_modified
         self.personal_toolbar_folder = personal_toolbar_folder
         self.children: list = []  # mix of Bookmark and Folder
+        self.original: bool = False  # True = existed in source file
 
     def __repr__(self):
         return f"<Folder {self.name!r} ({len(self.children)} items)>"
@@ -175,6 +176,7 @@ class BookmarkParser(HTMLParser):
                     == "true"
                 ),
             )
+            folder.original = True
             self._stack[-1].children.append(folder)
             self._in_title = True  # next data is the folder name
             self._current_bookmark = None
@@ -394,6 +396,17 @@ def _get_ai_provider() -> Optional[tuple[str, str, str]]:
     return None
 
 
+def _ai_display_name() -> str:
+    """Return short display name of configured AI model, e.g. 'gpt-5.4-nano'.
+
+    Falls back to 'AI' when no provider is configured.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return "AI"
+    return prov[2]  # model string
+
+
 def _call_ai(provider: str, api_key: str, model: str, prompt: str) -> str:
     """Dispatch prompt to AI provider and return raw text response."""
     if provider == "openai":
@@ -478,10 +491,10 @@ Decision rule — reuse vs. create:
 
 Guidance:
 - DEFAULT to creating a new folder when in doubt. Specificity beats reuse.
-- You MAY nest sub-folders up to 4 levels deep using "/" as a separator
-  (e.g. "Technology/DevOps/CI-CD/GitHub Actions").
-- Use deeper nesting when it meaningfully narrows the topic — do not nest
-  just for the sake of it.
+- You MAY nest sub-folders up to 3 levels deep using "/" as a separator
+  (e.g. "Technology/DevOps/CI-CD").
+- Do NOT go beyond 3 levels — deeper nesting creates too many lone
+  bookmarks and makes navigation harder.
 - Never force bookmarks into a vague existing folder just to avoid
   creating a new one.
 - Still apply the 2-bookmark minimum rule: every folder must contain
@@ -493,14 +506,17 @@ Below is a JSON array of bookmarks, each with an id, title, and URL.
 {existing_section}
 Your task:
 1. Analyse all bookmarks and decide on the best set of top-level folders
-   and sub-folders (up to 4 levels deep) that would logically group them.
+   and sub-folders (up to 3 levels deep) that would logically group them.
    Folder names MUST be broad topic or category names (e.g. "React",
    "DevOps", "Crypto", "Fitness") — NEVER use a bookmark's own title,
    a package/library name, a website name, or a place name as a folder
    name unless it represents a whole category of related content.
-   Avoid generic names like "Miscellaneous" unless truly needed.
-   Use a catch-all folder called "Unsorted Bookmarks" only for items
-   that genuinely defy categorisation.
+   Avoid generic names like "Miscellaneous", "Other", "Misc", or any
+   variation of "Unsorted" other than the exact name below.
+   The ONLY permitted catch-all folder name is "Unsorted Bookmarks" —
+   use it only for items that genuinely defy categorisation, and NEVER
+   create sub-folders under it. Do NOT invent names like
+   "Unsorted Places & Websites", "Unsorted Links", or similar.
 2. Assign every bookmark to exactly one folder path using "/" as a separator
    for sub-folders (e.g. "Software Engineering/Frontend/React" or
    "Finance/Crypto/DeFi/Lending").
@@ -538,14 +554,237 @@ Bookmarks:
             idx = int(idx_str)
             if 0 <= idx < len(bookmarks):
                 href_map[bookmarks[idx].href] = folder_path
-        print(f"  AI assigned {len(href_map)} bookmarks to folders.")
+        model_name = _ai_display_name()
+        print(
+            f"  {model_name} assigned {len(href_map)} bookmarks "
+            "to folders."
+        )
         return href_map
     except Exception as exc:
+        model_name = _ai_display_name()
         print(
-            f"  WARNING: AI folder assignment failed ({exc}) — "
-            "falling back to rule-based organizer."
+            f"  WARNING: {model_name} folder assignment failed "
+            f"({exc}) — falling back to rule-based organizer."
         )
         return {}
+
+
+def build_ai_subfolder_map(
+    folder_name: str,
+    bookmarks: list[Bookmark],
+    existing_subfolders: Optional[list[str]] = None,
+) -> dict[str, str]:
+    """Ask AI to suggest subfolders within an existing folder.
+
+    Returns {href: subfolder_name} where subfolder_name is a single-level
+    name relative to folder_name (e.g. "Gaming", not "Entertainment/Gaming").
+    Returns folder_name itself for bookmarks that should stay at that level.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return {}
+    provider, api_key, model = prov
+
+    bm_list = [
+        {"id": i, "title": bm.title.strip(), "url": bm.href}
+        for i, bm in enumerate(bookmarks)
+    ]
+
+    existing_part = ""
+    if existing_subfolders:
+        existing_part = (
+            f"\nExisting sub-folders already inside '{folder_name}':\n"
+            f"{json.dumps(existing_subfolders, ensure_ascii=False)}\n"
+            "Prefer reusing these if they are a strong, specific match.\n"
+        )
+
+    prompt = (
+        f"These bookmarks are currently all inside the folder "
+        f"'{folder_name}'.\n"
+        f"{existing_part}"
+        "Your task:\n"
+        "1. Identify natural topic sub-groups among these bookmarks and "
+        "assign each to a sub-folder name (single level, no '/' nesting).\n"
+        "2. Sub-folder names must be concise topic labels "
+        "(e.g. 'Gaming', 'Movies', 'Recipes').\n"
+        "3. Only create a sub-folder if AT LEAST 2 bookmarks belong to it.\n"
+        "4. If a bookmark fits better staying directly in "
+        f"'{folder_name}', return exactly '{folder_name}' for it.\n"
+        "5. Do NOT invent sub-folders for singletons — group with the "
+        "closest match or keep at the parent level.\n"
+        "6. Return ONLY a valid JSON object mapping each numeric id "
+        "(as a string key) to the sub-folder name string.\n"
+        "No explanation, no markdown, no extra keys.\n\n"
+        "Example output format:\n"
+        '{"0": "Gaming", "1": "Gaming", "2": "' + folder_name + '"}\n\n'
+        f"Bookmarks:\n{json.dumps(bm_list, ensure_ascii=False)}\n"
+    )
+
+    try:
+        raw = _call_ai(provider, api_key, model, prompt)
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+            raw = raw.rsplit("```", 1)[0].strip()
+        mapping = json.loads(raw)
+        result: dict[str, str] = {}
+        for idx_str, sub in mapping.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(bookmarks):
+                result[bookmarks[idx].href] = sub
+        return result
+    except Exception:
+        return {}
+
+
+def _collect_eligible_folders(
+    node: Folder, min_bookmarks: int
+) -> list[tuple[Folder, str]]:
+    """Return (folder, path) pairs that have enough direct bookmarks."""
+    result = []
+    for child in node.children:
+        if not isinstance(child, Folder):
+            continue
+        direct = sum(1 for c in child.children if isinstance(c, Bookmark))
+        if direct >= min_bookmarks:
+            result.append((child, child.name))
+        result.extend(
+            (f, f"{child.name}/{p}")
+            for f, p in _collect_eligible_folders(child, min_bookmarks)
+        )
+    return result
+
+
+def _build_ai_subfolder_maps_batch(
+    folders_data: list[tuple[str, list[Bookmark], list[str]]],
+) -> dict[int, dict[str, str]]:
+    """One AI call for all eligible folders.
+
+    folders_data: list of (folder_name, bookmarks, existing_subfolders).
+    Returns {folder_index: {href: subfolder_name}}.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return {}
+    provider, api_key, model = prov
+
+    payload = []
+    for fi, (fname, bms, existing) in enumerate(folders_data):
+        payload.append({
+            "folder_index": fi,
+            "folder_name": fname,
+            "existing_subfolders": existing,
+            "bookmarks": [
+                {"id": bi, "title": bm.title.strip(), "url": bm.href}
+                for bi, bm in enumerate(bms)
+            ],
+        })
+
+    prompt = (
+        "For each folder below, identify natural sub-groups and assign "
+        "each bookmark to a sub-folder name (single level, no '/' "
+        "nesting).\n\n"
+        "Rules:\n"
+        "- Only create a sub-folder if AT LEAST 2 bookmarks belong to "
+        "it.\n"
+        "- If a bookmark fits better staying in its parent folder, "
+        "return the folder_name value for it.\n"
+        "- Do NOT invent sub-folders for singletons.\n"
+        "- Prefer reusing existing_subfolders when they are a strong "
+        "match.\n"
+        "- Return ONLY valid JSON with this exact structure:\n"
+        '  {"0": {"0": "Gaming", "1": "Movies"}, "1": {"0": "Backend"}'
+        "}\n"
+        "  Outer key = folder_index (string), inner key = bookmark id "
+        "(string), value = sub-folder name string.\n"
+        "No explanation, no markdown.\n\n"
+        f"Folders:\n{json.dumps(payload, ensure_ascii=False)}\n"
+    )
+
+    try:
+        raw = _call_ai(provider, api_key, model, prompt)
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        outer = json.loads(raw)
+        result: dict[int, dict[str, str]] = {}
+        for fi_str, bm_map in outer.items():
+            fi = int(fi_str)
+            if fi < 0 or fi >= len(folders_data):
+                continue
+            _, bms, _ = folders_data[fi]
+            href_map: dict[str, str] = {}
+            for bi_str, sub in bm_map.items():
+                bi = int(bi_str)
+                if 0 <= bi < len(bms) and isinstance(sub, str):
+                    href_map[bms[bi].href] = sub
+            result[fi] = href_map
+        return result
+    except Exception:
+        return {}
+
+
+def subfolderize_existing_folders(
+    root: Folder, use_ai: bool = True, min_bookmarks: int = 3
+) -> dict[str, int]:
+    """For every folder with enough direct bookmarks, create sub-folders.
+
+    One AI call for all eligible folders (batch), not one per folder.
+    Returns {folder_path: count_moved}.
+    """
+    moved_counts: dict[str, int] = {}
+    eligible = _collect_eligible_folders(root, min_bookmarks)
+    total = len(eligible)
+
+    # Collect data for batch AI call
+    folders_data: list[tuple[str, list[Bookmark], list[str]]] = []
+    for node, _path in eligible:
+        direct_bms = [c for c in node.children if isinstance(c, Bookmark)]
+        existing_subs = [
+            c.name for c in node.children if isinstance(c, Folder)
+        ]
+        folders_data.append((node.name, direct_bms, existing_subs))
+
+    # One AI call for everything
+    batch_map: dict[int, dict[str, str]] = {}
+    if use_ai and folders_data:
+        print(
+            f"  Asking {_ai_display_name()} to suggest sub-folders "
+            f"for {total} folder(s) …",
+            flush=True,
+        )
+        batch_map = _build_ai_subfolder_maps_batch(folders_data)
+
+    for done, (node, path) in enumerate(eligible, start=1):
+        direct_bms = folders_data[done - 1][1]
+        print(
+            f"  [{done}/{total}] '{path}' "
+            f"({len(direct_bms)} bookmarks) …",
+            flush=True,
+        )
+        if not use_ai:
+            continue
+        sub_map = batch_map.get(done - 1, {})
+        count = 0
+        for bm in list(direct_bms):
+            suggested = sub_map.get(bm.href, "").strip()
+            if (
+                not suggested
+                or suggested == node.name
+                or "/" in suggested
+            ):
+                continue
+            target = _get_or_create_folder(node, suggested)
+            if target is node:
+                continue
+            node.children.remove(bm)
+            target.children.append(bm)
+            count += 1
+        if count:
+            moved_counts[path] = count
+            print(f"    → {count} bookmark(s) moved into sub-folders")
+        else:
+            print("    → no sub-folder groupings found")
+
+    return moved_counts
 
 
 # Rule-based fallback organizer (used when AI is unavailable)
@@ -1033,10 +1272,22 @@ def _get_or_create_folder(parent: Folder, name: str) -> Folder:
     return new_folder
 
 
+def _sanitize_folder_path(path: str) -> str:
+    """Normalize a folder path: collapse any Unsorted-* variant to
+    'Unsorted Bookmarks' and enforce the 3-level depth cap."""
+    parts = [p.strip() for p in path.split("/") if p.strip()]
+    if not parts:
+        return "Unsorted Bookmarks"
+    if parts[0].lower().startswith("unsorted"):
+        return "Unsorted Bookmarks"
+    return "/".join(parts[:3])
+
+
 def _get_or_create_nested(parent: Folder, path: str) -> Folder:
     """Given 'AI Tools/Image Generation', return (or create)
-    the nested folder."""
-    parts = [p.strip() for p in path.split("/")]
+    the nested folder. Maximum 3 levels deep."""
+    path = _sanitize_folder_path(path)
+    parts = [p.strip() for p in path.split("/")][:3]
     node = parent
     for part in parts:
         node = _get_or_create_folder(node, part)
@@ -1060,7 +1311,7 @@ def organize_unfoldered(
     for bm in orphans:
         # Prefer AI assignment, fall back to keyword rules
         if ai_map and bm.href in ai_map:
-            folder_path = ai_map[bm.href]
+            folder_path = _sanitize_folder_path(ai_map[bm.href])
         else:
             folder_path = _suggest_folder_rules(bm)
 
@@ -1124,6 +1375,24 @@ def remove_dead_bookmarks(node, removed: list) -> None:
             remove_dead_bookmarks(child, removed)
 
 
+def remove_duplicate_bookmarks(node: Folder, seen: set, removed: list) -> None:
+    """Walk tree in-place; remove bookmarks whose URL was already seen."""
+    to_remove = []
+    for child in node.children:
+        if isinstance(child, Bookmark):
+            url = child.href.rstrip("/").lower()
+            if url in seen:
+                to_remove.append(child)
+            else:
+                seen.add(url)
+    for bm in to_remove:
+        node.children.remove(bm)
+        removed.append(bm)
+    for child in node.children:
+        if isinstance(child, Folder):
+            remove_duplicate_bookmarks(child, seen, removed)
+
+
 # ---------------------------------------------------------------------------
 # Singleton folder consolidation
 # ---------------------------------------------------------------------------
@@ -1162,11 +1431,11 @@ def _delete_empty_folder(parent: Folder, folder: Folder) -> None:
 
 
 def _prune_empty_folders(node: Folder) -> None:
-    """Recursively remove all childless folders from the tree."""
+    """Recursively remove childless folders, skipping original ones."""
     for child in list(node.children):
         if isinstance(child, Folder):
             _prune_empty_folders(child)
-            if not child.children:
+            if not child.children and not child.original:
                 node.children.remove(child)
 
 
@@ -1189,90 +1458,331 @@ def collect_lone_folders(
     return results
 
 
-def _ai_best_folder_for_bookmark(
-    bm: Bookmark, folder_names: list[str]
-) -> Optional[str]:
-    """Ask AI which existing folder best fits a lone bookmark."""
+def _ai_best_folders_for_bookmarks(
+    bookmarks: list[Bookmark], folder_names: list[str]
+) -> dict[str, str]:
+    """Batch: ask AI the best existing folder for each lone bookmark.
+
+    Returns {href: folder_path}. One AI call for all bookmarks in a pass.
+    """
     prov = _get_ai_provider()
     if prov is None:
-        return None
+        return {}
     provider, api_key, model = prov
 
+    bm_list = [
+        {"id": i, "title": bm.title.strip(), "url": bm.href}
+        for i, bm in enumerate(bookmarks)
+    ]
     prompt = (
-        "A bookmark is currently in its own isolated folder "
+        "Each bookmark below is currently in its own isolated folder "
         "with no other bookmarks.\n"
-        "Find the BEST existing folder from the list below to place it in.\n"
-        f"\nBookmark:\n  Title: {bm.title}\n  URL: {bm.href}\n"
+        "Assign each to the BEST existing folder from the list.\n"
         "\nAvailable folders:\n"
         f"{json.dumps(folder_names, ensure_ascii=False)}\n"
         "\nRules:\n"
-        "- Return ONLY a JSON string — exact folder path from list above.\n"
+        "- Use only folder paths from the list above.\n"
         "- Do not invent new folder names.\n"
-        "- Pick the most topically relevant folder.\n"
-        '- If nothing fits well, return "Unsorted Bookmarks".\n'
-        '\nExample output: "Software Engineering/Frontend"\n'
+        "- Pick the most topically relevant folder for each bookmark.\n"
+        '- If nothing fits, use "Unsorted Bookmarks".\n'
+        "- Return ONLY valid JSON mapping each numeric id (string key) "
+        "to the folder path.\n"
+        "No explanation, no markdown.\n\n"
+        "Example: {\"0\": \"Health & Fitness\", \"1\": \"Finance\"}\n\n"
+        f"Bookmarks:\n{json.dumps(bm_list, ensure_ascii=False)}\n"
     )
     try:
         raw = _call_ai(provider, api_key, model, prompt)
-        raw = raw.strip().strip('"').strip("'")
-        if raw in folder_names:
-            return raw
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        mapping = json.loads(raw)
         lower_map = {n.lower(): n for n in folder_names}
-        if raw.lower() in lower_map:
-            return lower_map[raw.lower()]
-        return None
+        result: dict[str, str] = {}
+        for idx_str, path in mapping.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(bookmarks) and isinstance(path, str):
+                path = path.strip()
+                if path in folder_names:
+                    result[bookmarks[idx].href] = path
+                elif path.lower() in lower_map:
+                    result[bookmarks[idx].href] = lower_map[path.lower()]
+        return result
     except Exception:
-        return None
+        return {}
 
 
-def consolidate_lone_folders(root: Folder, use_ai: bool = True) -> int:
+def consolidate_lone_folders(
+    root: Folder,
+    use_ai: bool = True,
+    max_passes: int = 15,
+    stop_event: Optional[threading.Event] = None,
+) -> int:
     """
     Detect folders with exactly one bookmark, relocate that bookmark to the
     best matching existing folder, and delete the now-empty folder.
-    Repeats until no lone folders remain.
+    Repeats until no lone folders remain or stop_event is set.
     Returns count of relocated bookmarks.
+    One AI call per pass (batch), not one per bookmark.
     """
     total_moved = 0
     pass_num = 0
-    while True:
+    while pass_num < max_passes:
+        if stop_event and stop_event.is_set():
+            print(
+                "\n  Interrupted — stopping after current pass.",
+                flush=True,
+            )
+            break
         candidates = collect_lone_folders(root)
         if not candidates:
             break
         pass_num += 1
         total = len(candidates)
-        folder_names = _collect_folder_names(root)
+        all_folder_names = _collect_folder_names(root)
+
+        # Build set of lone-folder paths to exclude from destinations
+        lone_folder_paths: set[str] = set()
+        for _, lone_folder, _ in candidates:
+            match = next(
+                (
+                    p
+                    for p in all_folder_names
+                    if p == lone_folder.name
+                    or p.endswith("/" + lone_folder.name)
+                ),
+                None,
+            )
+            if match:
+                lone_folder_paths.add(match)
+        dest_folder_names = [
+            p for p in all_folder_names if p not in lone_folder_paths
+        ]
+
+        # One batch AI call for all bookmarks in this pass
+        lone_bms = [bm for _, _, bm in candidates]
+        ai_map: dict[str, str] = {}
+        if use_ai:
+            ai_map = _ai_best_folders_for_bookmarks(
+                lone_bms, dest_folder_names
+            )
+
         moves_this_pass = 0
         for done, (parent, lone_folder, bm) in enumerate(candidates, start=1):
-            dest_path: Optional[str] = None
-            if use_ai:
-                dest_path = _ai_best_folder_for_bookmark(bm, folder_names)
+            dest_path: Optional[str] = ai_map.get(bm.href)
             if dest_path is None:
                 dest_path = _suggest_folder_rules(bm)
             if dest_path is None:
                 dest_path = "Unsorted Bookmarks"
             dest = _get_or_create_nested(root, dest_path)
+            # If dest resolved to the lone folder itself, use Unsorted
+            if dest is lone_folder:
+                if lone_folder.name == "Unsorted Bookmarks":
+                    pct = (done / total) * 100
+                    bar_filled = int(pct / 5)
+                    bar = (
+                        "\u2588" * bar_filled
+                        + "\u2591" * (20 - bar_filled)
+                    )
+                    print(
+                        f"\r  Pass {pass_num} [{bar}] {pct:5.1f}%"
+                        f"  {done}/{total} processed"
+                        f"  {moves_this_pass} moved",
+                        end="",
+                        flush=True,
+                    )
+                    continue
+                dest_path = "Unsorted Bookmarks"
+                dest = _get_or_create_nested(root, dest_path)
             pct = (done / total) * 100
             bar_filled = int(pct / 5)
             bar = "\u2588" * bar_filled + "\u2591" * (20 - bar_filled)
             print(
                 f"\r  Pass {pass_num} [{bar}] {pct:5.1f}%"
                 f"  {done}/{total} processed"
-                f"  {total_moved + moves_this_pass} moved",
+                f"  {moves_this_pass} moved",
                 end="",
                 flush=True,
             )
-            if dest is lone_folder:
-                continue
             _move_bookmark(lone_folder, dest, bm)
             if not lone_folder.children:
                 _delete_empty_folder(parent, lone_folder)
             moves_this_pass += 1
             total_moved += 1
-        print(flush=True)
+        print(f"    ({total_moved} total moved so far)", flush=True)
         _prune_empty_folders(root)
         if moves_this_pass == 0:
             break
     return total_moved
+
+
+# ---------------------------------------------------------------------------
+# Similar-folder merging
+# ---------------------------------------------------------------------------
+
+
+def _ai_suggest_folder_merges(
+    folder_names: list[str],
+) -> dict[str, list[str]]:
+    """Ask AI to identify groups of similar folder names to merge.
+
+    Returns {canonical_name: [names_to_merge_into_it, ...]}.
+    Only folders with clear overlap are grouped; unrelated folders are omitted.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return {}
+    provider, api_key, model = prov
+
+    prompt = (
+        "Below is a list of bookmark folder names.\n"
+        "Identify groups of folders that represent the same topic "
+        "and should be merged into one.\n"
+        "For each group choose the best canonical name "
+        "(prefer the most descriptive existing name).\n"
+        "\nFolder names:\n"
+        f"{json.dumps(folder_names, ensure_ascii=False)}\n"
+        "\nRules:\n"
+        "- Only group folders that are clearly about the same topic.\n"
+        "- Do NOT merge unrelated folders just because they are small.\n"
+        "- The canonical name MUST be one of the names in the list.\n"
+        "- Omit folders that need no merging.\n"
+        "- Return ONLY valid JSON: "
+        '{"canonical": ["alias1", "alias2"], ...}\n'
+        "- If nothing should be merged return {}\n"
+    )
+    try:
+        raw = _call_ai(provider, api_key, model, prompt)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return {}
+        result: dict[str, list[str]] = {}
+        for canonical, aliases in data.items():
+            if (
+                isinstance(aliases, list)
+                and canonical in folder_names
+                and aliases
+            ):
+                valid = [
+                    a for a in aliases
+                    if isinstance(a, str) and a in folder_names
+                    and a != canonical
+                ]
+                if valid:
+                    result[canonical] = valid
+        return result
+    except Exception:
+        return {}
+
+
+def _find_folder_by_name(
+    node: Folder, name: str
+) -> Optional[tuple["Folder", "Folder"]]:
+    """Return (parent, folder) for first folder with given name, or None."""
+    for child in node.children:
+        if isinstance(child, Folder):
+            if child.name == name:
+                return (node, child)
+            found = _find_folder_by_name(child, name)
+            if found:
+                return found
+    return None
+
+
+def _merge_folder_into(
+    parent: Folder, src: Folder, dest: Folder
+) -> None:
+    """Move all children of src into dest, then delete src from parent."""
+    for child in list(src.children):
+        if isinstance(child, Bookmark):
+            dest.children.append(child)
+            src.children.remove(child)
+        elif isinstance(child, Folder):
+            existing = next(
+                (
+                    c for c in dest.children
+                    if isinstance(c, Folder) and c.name == child.name
+                ),
+                None,
+            )
+            if existing:
+                # recursive call removes child from src.children itself
+                _merge_folder_into(src, child, existing)
+            else:
+                dest.children.append(child)
+                src.children.remove(child)
+    if src in parent.children:
+        parent.children.remove(src)
+
+
+def merge_similar_folders(
+    root: Folder, merges: dict[str, list[str]]
+) -> int:
+    """Apply merge groups to tree. Returns count of folders removed."""
+    removed = 0
+    for canonical, aliases in merges.items():
+        canon_result = _find_folder_by_name(root, canonical)
+        if canon_result is None:
+            continue
+        _, dest = canon_result
+        for alias in aliases:
+            alias_result = _find_folder_by_name(root, alias)
+            if alias_result is None:
+                continue
+            alias_parent, src = alias_result
+            if src is dest:
+                continue
+            _merge_folder_into(alias_parent, src, dest)
+            removed += 1
+    return removed
+
+
+# ---------------------------------------------------------------------------
+# Hollow-folder flattening
+# ---------------------------------------------------------------------------
+
+
+def flatten_hollow_folders(node: Folder) -> int:
+    """Collapse subfolders whose parent has no direct bookmarks.
+
+    If a folder contains only subfolders (no direct bookmark children),
+    move all bookmarks from those subfolders up into the folder and
+    delete the now-empty subfolders. Repeats bottom-up so deeply nested
+    hollow chains are fully resolved. Returns count of folders removed.
+    """
+    removed = 0
+    for child in list(node.children):
+        if isinstance(child, Folder):
+            removed += flatten_hollow_folders(child)
+
+    for child in list(node.children):
+        if not isinstance(child, Folder):
+            continue
+        if child.original:
+            continue  # never flatten original folders
+        direct_bookmarks = [
+            c for c in child.children if isinstance(c, Bookmark)
+        ]
+        if direct_bookmarks:
+            continue
+        # hollow — pull all bookmarks from immediate subfolders up
+        for sub in list(child.children):
+            if not isinstance(sub, Folder):
+                continue
+            for bm in list(sub.children):
+                if isinstance(bm, Bookmark):
+                    child.children.append(bm)
+                    sub.children.remove(bm)
+        _prune_empty_folders(child)
+        removed += 1 if not any(
+            isinstance(c, Folder) for c in child.children
+        ) else 0
+
+    return removed
 
 
 # ---------------------------------------------------------------------------
@@ -1364,6 +1874,118 @@ def write_bookmarks(root: Folder, path: str) -> None:
 
 # ---------------------------------------------------------------------------
 
+# Seconds between Windows epoch (1601-01-01) and Unix epoch (1970-01-01)
+_CHROMIUM_EPOCH_OFFSET = 11_644_473_600
+
+
+def find_browser_bookmark_files() -> list[tuple[str, Path]]:
+    """Return (browser_name, path) for every Chromium Bookmarks JSON found."""
+    home = Path.home()
+    platform = sys.platform
+
+    if platform == "win32":
+        local = Path(
+            os.environ.get("LOCALAPPDATA", home / "AppData" / "Local")
+        )
+        bm = "User Data" / Path("Default") / "Bookmarks"
+        candidates = [
+            ("Microsoft Edge", local / "Microsoft" / "Edge" / bm),
+            ("Google Chrome", local / "Google" / "Chrome" / bm),
+            (
+                "Brave",
+                local / "BraveSoftware" / "Brave-Browser" / bm,
+            ),
+        ]
+    elif platform == "darwin":
+        app_support = home / "Library" / "Application Support"
+        bm = Path("Default") / "Bookmarks"
+        candidates = [
+            ("Microsoft Edge", app_support / "Microsoft Edge" / bm),
+            ("Google Chrome", app_support / "Google" / "Chrome" / bm),
+            (
+                "Brave",
+                app_support / "BraveSoftware" / "Brave-Browser" / bm,
+            ),
+        ]
+    else:
+        config = home / ".config"
+        bm = Path("Default") / "Bookmarks"
+        candidates = [
+            ("Microsoft Edge", config / "microsoft-edge" / bm),
+            ("Google Chrome", config / "google-chrome" / bm),
+            (
+                "Brave",
+                config / "BraveSoftware" / "Brave-Browser" / bm,
+            ),
+        ]
+
+    return [(name, path) for name, path in candidates if path.exists()]
+
+
+def _chromium_ts(raw: str) -> str:
+    """Convert Chromium µs-since-1601 timestamp to Unix seconds string."""
+    try:
+        return str(int(raw) // 1_000_000 - _CHROMIUM_EPOCH_OFFSET)
+    except (ValueError, TypeError):
+        return ""
+
+
+def _write_chromium_node(node: dict, lines: list[str], indent: int) -> None:
+    pad = "    " * indent
+    name = _esc(node.get("name", ""))
+    date = _chromium_ts(node.get("date_added", ""))
+    add_date = f' ADD_DATE="{date}"' if date else ""
+
+    if node.get("type") == "url":
+        url = _esc(node.get("url", ""))
+        lines.append(f'{pad}<DT><A HREF="{url}"{add_date}>{name}</A>\n')
+    elif node.get("type") == "folder":
+        last_mod = _chromium_ts(node.get("date_modified", ""))
+        last_modified = f' LAST_MODIFIED="{last_mod}"' if last_mod else ""
+        lines.append(f"{pad}<DT><H3{add_date}{last_modified}>{name}</H3>\n")
+        lines.append(f"{pad}<DL><p>\n")
+        for child in node.get("children", []):
+            _write_chromium_node(child, lines, indent + 1)
+        lines.append(f"{pad}</DL><p>\n")
+
+
+def convert_chromium_json_to_html(json_path: Path, output_path: Path) -> None:
+    """Read a Chromium Bookmarks JSON file and write Netscape HTML."""
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    roots = data.get("roots", {})
+
+    lines = [HEADER]
+    lines.append("<DL><p>\n")
+
+    root_order = [
+        ("bookmark_bar", "Bookmarks bar", ' PERSONAL_TOOLBAR_FOLDER="true"'),
+        ("other", "Other bookmarks", ""),
+        ("synced", "Mobile bookmarks", ""),
+    ]
+    for key, fallback_name, extra_attrs in root_order:
+        node = roots.get(key)
+        if not node:
+            continue
+        name = _esc(node.get("name", fallback_name))
+        date = _chromium_ts(node.get("date_added", ""))
+        add_date = f' ADD_DATE="{date}"' if date else ""
+        last_mod = _chromium_ts(node.get("date_modified", ""))
+        last_modified = f' LAST_MODIFIED="{last_mod}"' if last_mod else ""
+        lines.append(
+            f"    <DT><H3{add_date}{last_modified}{extra_attrs}>{name}</H3>\n"
+        )
+        lines.append("    <DL><p>\n")
+        for child in node.get("children", []):
+            _write_chromium_node(child, lines, indent=2)
+        lines.append("    </DL><p>\n")
+
+    lines.append("</DL><p>\n")
+    lines.append(FOOTER)
+    output_path.write_text("".join(lines), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1403,24 +2025,33 @@ def main():
         help="Skip AI folder assignment; use keyword rules instead",
     )
     parser.add_argument(
+        "--max-passes",
+        type=int,
+        default=15,
+        metavar="N",
+        help=("Max passes when merging lone folders (default: 15)"),
+    )
+    parser.add_argument(
         "--log", default="bookmark_cleaner.log", help="Log file path"
+    )
+    parser.add_argument(
+        "--delete-duplicates",
+        action="store_true",
+        help="Remove duplicate URLs without prompting",
     )
     args = parser.parse_args()
 
     # ── Auto-detect HTML file if not specified ─────────────────────────────
     if args.input is None:
-        html_files = list(Path(".").glob("*.html"))
+        html_files = [
+            f for f in Path(".").glob("*.html")
+            if "_cleaned_" not in f.name
+            and not f.name.endswith("_bookmarks_export.html")
+        ]
         if len(html_files) == 1:
             args.input = str(html_files[0])
             print(f"Auto-detected HTML file: {args.input}")
-        elif len(html_files) == 0:
-            print(
-                "ERROR: No HTML files found in current directory.",
-                file=sys.stderr,
-            )
-            print("Please specify the input file path.", file=sys.stderr)
-            sys.exit(1)
-        else:
+        elif len(html_files) > 1:
             print(
                 "ERROR: Multiple HTML files found in current directory:",
                 file=sys.stderr,
@@ -1429,8 +2060,90 @@ def main():
                 print(f"  - {f}", file=sys.stderr)
             print("Please specify the input file path.", file=sys.stderr)
             sys.exit(1)
+        else:
+            # No HTML file — try to find a browser Bookmarks JSON
+            browsers = find_browser_bookmark_files()
 
-    # ── Ctrl+C handler — clean exit without traceback ─────────────────────
+            if len(browsers) == 0:
+                print(
+                    "No bookmark HTML file found in current directory.",
+                    file=sys.stderr,
+                )
+                print(
+                    "No browser bookmark files detected automatically.",
+                    file=sys.stderr,
+                )
+                supplied = input(
+                    "Enter path to bookmarks HTML file"
+                    " (or press Enter to exit): "
+                ).strip()
+                if not supplied:
+                    sys.exit(1)
+                supplied_path = Path(supplied).expanduser().resolve()
+                if not supplied_path.exists():
+                    print(
+                        f"ERROR: File not found: {supplied_path}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                args.input = str(supplied_path)
+
+            elif len(browsers) == 1:
+                bname, bjson = browsers[0]
+                slug = bname.lower().replace(" ", "_")
+                export_path = (
+                    Path(".") / f"{slug}_bookmarks_export.html"
+                )
+                print(f"Found {bname} bookmarks at: {bjson}")
+                print(f"Auto-exporting to: {export_path}")
+                convert_chromium_json_to_html(bjson, export_path)
+                args.input = str(export_path)
+
+            else:
+                print("Found browser bookmark files:")
+                for i, (bname, bpath) in enumerate(browsers, 1):
+                    print(f"  {i}. {bname}: {bpath}")
+                last = len(browsers) + 1
+                print(f"  {last}. Enter a custom file path")
+                raw = (
+                    input(f"Select [1–{last}] (default 1): ").strip()
+                    or "1"
+                )
+                try:
+                    choice = int(raw)
+                except ValueError:
+                    print("ERROR: Invalid selection.", file=sys.stderr)
+                    sys.exit(1)
+                if 1 <= choice <= len(browsers):
+                    bname, bjson = browsers[choice - 1]
+                    slug = bname.lower().replace(" ", "_")
+                    export_path = (
+                        Path(".") / f"{slug}_bookmarks_export.html"
+                    )
+                    print(f"Exporting {bname} bookmarks to: {export_path}")
+                    convert_chromium_json_to_html(bjson, export_path)
+                    args.input = str(export_path)
+                elif choice == last:
+                    supplied = input(
+                        "Enter path to bookmarks HTML file: "
+                    ).strip()
+                    if not supplied:
+                        sys.exit(1)
+                    supplied_path = (
+                        Path(supplied).expanduser().resolve()
+                    )
+                    if not supplied_path.exists():
+                        print(
+                            f"ERROR: File not found: {supplied_path}",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                    args.input = str(supplied_path)
+                else:
+                    print("ERROR: Invalid selection.", file=sys.stderr)
+                    sys.exit(1)
+
+    # ── Ctrl+C / Escape handler — clean exit without traceback ────────────
     stop_event = threading.Event()
 
     def _handle_interrupt(sig, frame):
@@ -1445,6 +2158,100 @@ def main():
     import signal
 
     signal.signal(signal.SIGINT, _handle_interrupt)
+
+    escape_pause = threading.Event()  # set = paused
+
+    def _watch_escape(
+        event: threading.Event, pause: threading.Event
+    ) -> None:
+        """Background thread: set event when Escape is pressed.
+
+        Pauses (restores terminal) while pause is set so that normal
+        input() calls in the main thread work unobstructed.
+        """
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                while not event.is_set():
+                    if pause.is_set():
+                        while pause.is_set() and not event.is_set():
+                            time.sleep(0.05)
+                        continue
+                    if msvcrt.kbhit():
+                        ch = msvcrt.getwch()
+                        if ch == "\x1b":
+                            if not event.is_set():
+                                print(
+                                    "\n\n  Escape pressed — finishing "
+                                    "in-flight requests and exiting "
+                                    "cleanly …",
+                                    flush=True,
+                                )
+                                event.set()
+                            return
+                    time.sleep(0.05)
+            else:
+                import select
+                import termios
+                import tty
+                fd = sys.stdin.fileno()
+                old = termios.tcgetattr(fd)
+                try:
+                    tty.setcbreak(fd)
+                    while not event.is_set():
+                        if pause.is_set():
+                            termios.tcsetattr(
+                                fd, termios.TCSADRAIN, old
+                            )
+                            while pause.is_set() and not event.is_set():
+                                time.sleep(0.05)
+                            if event.is_set():
+                                return
+                            tty.setcbreak(fd)
+                            continue
+                        r, _, _ = select.select(
+                            [sys.stdin], [], [], 0.1
+                        )
+                        if not r:
+                            continue
+                        ch = sys.stdin.read(1)
+                        if ch == "\x1b":
+                            if not event.is_set():
+                                print(
+                                    "\n\n  Escape pressed — finishing "
+                                    "in-flight requests and exiting "
+                                    "cleanly …",
+                                    flush=True,
+                                )
+                                event.set()
+                            return
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception:
+            pass
+
+    escape_thread = threading.Thread(
+        target=_watch_escape,
+        args=(stop_event, escape_pause),
+        daemon=True,
+    )
+    escape_thread.start()
+
+    # Restore terminal on exit — daemon threads are killed abruptly so
+    # the thread's finally block is not guaranteed to run.
+    if sys.platform != "win32":
+        import atexit
+        import termios as _termios
+        try:
+            _saved_term = _termios.tcgetattr(sys.stdin.fileno())
+            atexit.register(
+                _termios.tcsetattr,
+                sys.stdin.fileno(),
+                _termios.TCSADRAIN,
+                _saved_term,
+            )
+        except Exception:
+            pass
 
     # ── Logging setup ──────────────────────────────────────────────────────
     logging.basicConfig(
@@ -1475,6 +2282,7 @@ def main():
 
     print(f"✓ Original file kept as-is: {input_path}")
     print(f"✓ Cleaned output will be written to: {output_path}")
+    print("  (Press Ctrl+C or Escape at any time to cancel cleanly)")
 
     # ── Parse ──────────────────────────────────────────────────────────────
     print(f"\nParsing bookmarks from: {input_path}")
@@ -1491,8 +2299,8 @@ def main():
         print(
             f"\nChecking {len(all_bookmarks)} URLs "
             f"({args.threads} threads, {args.timeout}s timeout) …"
+            "\n  (This may take several minutes for large collections)\n"
         )
-        print("  (This may take several minutes for large collections)\n")
         t0 = time.time()
         check_all_bookmarks(
             all_bookmarks,
@@ -1524,10 +2332,59 @@ def main():
     else:
         print("\n  URL checking skipped (--skip-check).")
 
+    # ── Remove duplicate bookmarks ─────────────────────────────────────────
+    seen_urls: set[str] = set()
+    dupe_count = 0
+    for bm in collect_all_bookmarks(root):
+        url = bm.href.rstrip("/").lower()
+        if url in seen_urls:
+            dupe_count += 1
+        else:
+            seen_urls.add(url)
+
+    removed_dupes: list[Bookmark] = []
+    if dupe_count > 0:
+        print(f"\nFound {dupe_count} duplicate bookmark(s).")
+        if args.dry_run:
+            print(
+                "  [dry-run] Would remove duplicates if confirmed."
+            )
+        elif args.delete_duplicates:
+            remove_duplicate_bookmarks(root, set(), removed_dupes)
+            print(
+                f"  Removed {len(removed_dupes)} duplicate bookmark(s)."
+            )
+        else:
+            escape_pause.set()
+            try:
+                answer = input(
+                    "  Delete duplicate bookmarks? [y/N]: "
+                ).strip().lower()
+            finally:
+                escape_pause.clear()
+            if answer in ("y", "yes"):
+                remove_duplicate_bookmarks(root, set(), removed_dupes)
+                print(
+                    f"  Removed {len(removed_dupes)} duplicate bookmark(s)."
+                )
+            else:
+                print("  Skipped — duplicates kept.")
+    else:
+        print("\nNo duplicate bookmarks found.")
+
     # ── Organize unfoldered bookmarks ──────────────────────────────────────
     # Refresh after possible removals
     orphans = collect_unfoldered(root)
-    print(f"\nOrganizing {len(orphans)} top-level (unfoldered) bookmarks …")
+    if args.no_ai:
+        print(
+            f"\nOrganizing {len(orphans)} top-level (unfoldered) "
+            "bookmarks …"
+        )
+    else:
+        print(
+            f"\nAsking {_ai_display_name()} to organize "
+            f"{len(orphans)} top-level (unfoldered) bookmarks …"
+        )
 
     ai_map: Optional[dict[str, str]] = None
     if not args.no_ai and orphans:
@@ -1542,17 +2399,28 @@ def main():
             print(f"  → '{folder}': {len(bms)} bookmark(s)")
     else:
         for bm in orphans:
-            fp = (
+            raw_fp = (
                 (ai_map or {}).get(bm.href)
                 or _suggest_folder_rules(bm)
                 or "Unsorted Bookmarks"
             )
+            fp = _sanitize_folder_path(raw_fp)
             print(f"  [dry-run] '{bm.title[:60]}' → {fp}")
+
+    # ── Sub-folder pass: organise bookmarks within existing folders ────────
+    if not args.dry_run and not args.no_ai:
+        print("\nCreating sub-folders within existing folders …")
+        subfolderize_existing_folders(root, use_ai=True)
 
     # ── Merge lone folders ─────────────────────────────────────────────────
     if not args.dry_run:
         print("\nMerging lone folders …")
-        relocated = consolidate_lone_folders(root, use_ai=not args.no_ai)
+        relocated = consolidate_lone_folders(
+            root,
+            use_ai=not args.no_ai,
+            max_passes=args.max_passes,
+            stop_event=stop_event,
+        )
         if relocated:
             print(f"  Moved {relocated} bookmark(s) out of lone folders.")
         else:
@@ -1570,6 +2438,38 @@ def main():
                     f"'{bm.title[:60]}' would be relocated"
                 )
 
+    # ── Merge similar folders ──────────────────────────────────────────────
+    if not args.no_ai:
+        print(
+            f"\nAsking {_ai_display_name()} to check for similar "
+            "folders to merge …"
+        )
+        all_folder_names = _collect_folder_names(root)
+        top_level_names = [
+            n for n in all_folder_names if "/" not in n
+        ]
+        merges = _ai_suggest_folder_merges(top_level_names)
+        if merges:
+            if not args.dry_run:
+                removed_folders = merge_similar_folders(root, merges)
+                for canonical, aliases in merges.items():
+                    joined = ", ".join(f"'{a}'" for a in aliases)
+                    print(f"  Merged {joined} → '{canonical}'")
+                print(
+                    f"  {removed_folders} redundant folder(s) removed."
+                )
+            else:
+                print("  [dry-run] Would merge:")
+                for canonical, aliases in merges.items():
+                    joined = ", ".join(f"'{a}'" for a in aliases)
+                    print(f"    {joined} → '{canonical}'")
+        else:
+            print("  No similar folders found.")
+
+    # ── Flatten hollow folders (no direct bookmarks, only subfolders) ─────
+    if not args.dry_run:
+        flatten_hollow_folders(root)
+
     # ── Sort all folders and bookmarks alphabetically ──────────────────────
     if not args.dry_run:
         sort_tree(root)
@@ -1578,7 +2478,7 @@ def main():
     if not args.dry_run:
         write_bookmarks(root, str(output_path))
         print(f"\n✓ Cleaned bookmarks written to: {output_path}")
-        _print_summary(root, removed_dead, output_path)
+        _print_summary(root, removed_dead, removed_dupes, output_path)
     else:
         print("\n[dry-run] No output file written.")
     print(f"\nDetailed log: {args.log}")
@@ -1599,13 +2499,16 @@ def _count_folders(node) -> int:
     return count
 
 
-def _print_summary(root: Folder, removed: list, output: Path) -> None:
+def _print_summary(
+    root: Folder, removed: list, dupes: list, output: Path
+) -> None:
     all_bms = collect_all_bookmarks(root)
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
     print(f"  Bookmarks remaining : {len(all_bms)}")
     print(f"  Dead links removed  : {len(removed)}")
+    print(f"  Duplicates removed  : {len(dupes)}")
     print(f"  Folders in output   : {_count_folders(root)}")
     print(f"  Output file size    : {output.stat().st_size:,} bytes")
     print("=" * 60)

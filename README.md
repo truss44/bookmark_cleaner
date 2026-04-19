@@ -6,10 +6,13 @@ A Python command-line tool that parses your exported Edge favorites, removes dea
 
 ## Features
 
+- **Auto-export from browser** — if no HTML file is present, the tool automatically finds and exports bookmarks from Edge, Chrome, or Brave — no manual export step required
+- **Duplicate removal** — detects bookmarks sharing the same URL and prompts before removing; use `--delete-duplicates` to skip the prompt
 - **Automatic backup** — timestamped copy of the original is always created before any changes
 - **Dead link removal** — checks every URL concurrently; removes 404s, 410s, and unreachable sites
 - **Smart organization** — loose (unfoldered) bookmarks are matched against topic rules and moved into relevant folders and subfolders
-- **Singleton consolidation** — folders with only one bookmark are detected and that bookmark is moved to the most relevant existing folder; empty folders are deleted
+- **Similar folder merging** — AI identifies folders covering the same topic (e.g. "Health", "Health Sites" → "Health & Fitness") and merges them automatically
+- **Lone folder merging** — folders with only one bookmark are detected and that bookmark is moved to the most relevant existing folder; empty folders are deleted
 - **Alphabetical sorting** — all folders and bookmarks are sorted alphabetically after organization (folders first, then bookmarks)
 - **Edge-compatible output** — writes standard Netscape Bookmark HTML that Edge imports natively
 - **Detailed logging** — per-URL results written to a log file for review
@@ -125,7 +128,7 @@ npm run test:coverage
 python3 -m pytest tests/ -v --cov=bookmark_cleaner --cov-report=term-missing
 ```
 
-Tests cover singleton folder consolidation, alphabetical sorting, and all supporting helper functions. All tests must pass before merging PRs.
+Tests cover lone folder merging, alphabetical sorting, and all supporting helper functions. All tests must pass before merging PRs.
 
 ### Python Linting
 
@@ -171,15 +174,17 @@ python bookmark_cleaner.py <input_file> [options]
 
 ### Options
 
-| Option          | Default                            | Description                                                   |
-| --------------- | ---------------------------------- | ------------------------------------------------------------- |
-| `--output FILE` | `<input>_cleaned_<timestamp>.html` | Path for the output file                                      |
-| `--threads N`   | `20`                               | Number of concurrent URL check workers                        |
-| `--timeout N`   | `10`                               | Per-URL timeout in seconds                                    |
-| `--dry-run`     | off                                | Preview changes without writing any files                     |
-| `--skip-check`  | off                                | Skip URL checks; organize only                                |
-| `--no-ai`       | off                                | Skip AI folder assignment; use built-in keyword rules instead |
-| `--log FILE`    | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
+| Option                | Default                            | Description                                                   |
+| --------------------- | ---------------------------------- | ------------------------------------------------------------- |
+| `--output FILE`       | `<input>_cleaned_<timestamp>.html` | Path for the output file                                      |
+| `--threads N`         | `20`                               | Number of concurrent URL check workers                        |
+| `--timeout N`         | `10`                               | Per-URL timeout in seconds                                    |
+| `--dry-run`           | off                                | Preview changes without writing any files                     |
+| `--skip-check`        | off                                | Skip URL checks; organize only                                |
+| `--no-ai`             | off                                | Skip AI folder assignment; use built-in keyword rules instead |
+| `--max-passes N`      | `15`                               | Max passes when merging lone folders                          |
+| `--log FILE`          | `bookmark_cleaner.log`             | Path for the detailed per-URL log                             |
+| `--delete-duplicates` | off (interactive prompt)           | Remove duplicate URLs without prompting                       |
 
 ### Examples
 
@@ -219,6 +224,12 @@ python bookmark_cleaner.py favorites.html --output my_cleaned_favorites.html
 python bookmark_cleaner.py favorites.html --no-ai
 ```
 
+**Remove duplicate URLs automatically (no prompt)**:
+
+```bash
+python bookmark_cleaner.py favorites.html --delete-duplicates
+```
+
 **Full options example**:
 
 ```bash
@@ -226,12 +237,35 @@ python bookmark_cleaner.py favorites.html \
   --output clean.html \
   --threads 15 \
   --timeout 15 \
+  --delete-duplicates \
   --log results.log
 ```
 
 ---
 
-## Exporting Favorites from Edge
+## Auto-Detecting Browser Bookmarks
+
+If you run the script without specifying an input file and no `.html` file is present in the current directory, the tool will automatically search for browser bookmark files in common OS locations:
+
+| Browser        | Detection                                              |
+| -------------- | ------------------------------------------------------ |
+| Microsoft Edge | Standard user data directory (Windows / macOS / Linux) |
+| Google Chrome  | Standard user data directory (Windows / macOS / Linux) |
+| Brave          | Standard user data directory (Windows / macOS / Linux) |
+
+**Single browser found:** The bookmarks are exported automatically and the script continues — no prompt needed.
+
+**Multiple browsers found:** A numbered list is shown; select which browser to use (or enter a custom path).
+
+**No browser found:** You are prompted to supply the path to a bookmarks HTML file manually.
+
+The exported file is written to `<browser_name>_bookmarks_export.html` in the current directory.
+
+---
+
+## Exporting Favorites from Edge Manually
+
+If you prefer to export manually (or use a non-Chromium browser):
 
 1. Open Microsoft Edge
 2. Go to **Settings** (⋯ menu) → **Favorites** → **⋯ menu** → **Export favorites**
@@ -271,11 +305,11 @@ Non-HTTP URLs (e.g. `javascript:`, `chrome://`, `file://`) are skipped and kept.
 
 ## How Organization Works
 
-Root-level (unfoldered) bookmarks are organized into folders. After organization, singleton folders (folders containing only one bookmark) are consolidated, and all folders and bookmarks are sorted alphabetically.
+Root-level (unfoldered) bookmarks are organized into folders. After organization, lone folders (folders containing only one bookmark) are merged into more relevant folders, and all folders and bookmarks are sorted alphabetically.
 
 ### AI-Powered Organization (default)
 
-After URL checking is complete, all surviving unfoldered bookmarks are sent to the AI model specified in your `.env` file in a single API call. The model reviews every bookmark title and URL together, decides on a logical folder taxonomy tailored to your actual collection, and assigns each bookmark to a folder path.
+After URL checking is complete, all surviving unfoldered bookmarks are sent to the AI model specified in your `.env` file in a single API call. The model reviews every bookmark title and URL together, decides on a logical folder structure tailored to your actual collection, and assigns each bookmark to a folder path.
 
 The script automatically detects which AI provider you've configured (OpenAI, Anthropic, Gemini, or OpenRouter) and uses the appropriate API. Default models:
 
@@ -291,6 +325,8 @@ The AI creates folders and subfolders appropriate to what it sees — for exampl
 - `AI Tools/MCP`
 - `Finance & Crypto/Crypto`
 - `Unsorted Bookmarks` _(catch-all for anything it can't categorize)_
+
+Folder nesting is capped at **3 levels deep** to prevent overly narrow folders with only one bookmark.
 
 Because the model sees the whole collection at once, it can create folders that reflect your specific bookmarks rather than a generic preset list.
 
@@ -341,9 +377,21 @@ Reduce `--threads` if you hit rate limits; increase `--timeout` if legitimate si
 
 ### Singleton Folder Consolidation
 
-After all bookmarks are organized into folders, the script scans for folders containing only one bookmark. Each such folder is treated as a sign that the bookmark needs a better home. The lone bookmark is relocated to the most topically relevant existing folder (using AI or keyword rules), and the now-empty folder is deleted. This process repeats until no singleton folders remain.
+After all bookmarks are organized into folders, the script scans for lone folders (folders with only one bookmark). The lone bookmark is relocated to the most topically relevant existing folder (using AI or keyword rules), and the now-empty folder is deleted. This repeats for up to `--max-passes` passes (default: 15) or until no lone folders remain.
 
-The AI taxonomy prompt also instructs the model to avoid creating singleton folders in the first place — every folder should contain at least 2 bookmarks.
+The AI prompt also instructs the model to avoid creating lone folders in the first place — every folder should contain at least 2 bookmarks.
+
+### Similar Folder Merging
+
+After lone-folder consolidation, the AI scans all top-level folder names and identifies groups that cover the same topic. For each group it picks the most descriptive existing name as canonical and merges the others into it — moving all bookmarks and recursively merging matching subfolders. Skipped when `--no-ai` is set.
+
+### Cancelling a Run
+
+Press **Ctrl+C** or **Escape** at any time to stop cleanly. The script finishes the operation currently in progress (e.g. the current URL-check batch or consolidation pass), writes the output file with whatever progress has been made, and exits. The hint is shown at startup:
+
+```
+(Press Ctrl+C or Escape at any time to cancel cleanly)
+```
 
 ### Alphabetical Sorting
 
@@ -354,7 +402,7 @@ After consolidation, all folders and bookmarks are sorted alphabetically at ever
 ## Limitations
 
 - **Favicon/icon data** is preserved from the original file but not re-fetched for bookmarks moved to new folders
-- Existing folder structures are preserved as-is; only unfoldered bookmarks and singleton folders are reorganized
+- Existing folder structures are preserved as-is; only unfoldered bookmarks and lone folders are reorganized
 - Some CDN-protected or bot-blocking sites may return errors despite being live; always review the log before finalizing
 - `file://` and `chrome://` URLs are kept without checking
 

@@ -13,8 +13,8 @@ from bookmark_cleaner import (
     _move_bookmark,
     _delete_empty_folder,
     _prune_empty_folders,
-    collect_singleton_folders,
-    consolidate_singleton_folders,
+    collect_lone_folders as collect_singleton_folders,
+    consolidate_lone_folders as consolidate_singleton_folders,
     sort_tree,
 )
 
@@ -331,16 +331,16 @@ def test_taxonomy_prompt_contains_min_bookmark_constraint():
     import inspect
     import bookmark_cleaner
 
-    src = inspect.getsource(bookmark_cleaner.build_ai_folder_taxonomy)
+    src = inspect.getsource(bookmark_cleaner.build_ai_folder_structure)
     assert "at least 2" in src or "at least two" in src.lower()
 
 
 def test_taxonomy_function_accepts_existing_folders_param():
-    """build_ai_folder_taxonomy must accept existing_folders keyword argument."""
+    """build_ai_folder_structure must accept existing_folders keyword argument."""
     import inspect
     import bookmark_cleaner
 
-    sig = inspect.signature(bookmark_cleaner.build_ai_folder_taxonomy)
+    sig = inspect.signature(bookmark_cleaner.build_ai_folder_structure)
     assert "existing_folders" in sig.parameters
 
 
@@ -349,7 +349,7 @@ def test_taxonomy_prompt_includes_existing_folders_when_provided():
     import inspect
     import bookmark_cleaner
 
-    src = inspect.getsource(bookmark_cleaner.build_ai_folder_taxonomy)
+    src = inspect.getsource(bookmark_cleaner.build_ai_folder_structure)
     assert "existing_folders" in src
     assert "Prefer assigning" in src or "existing folder" in src
 
