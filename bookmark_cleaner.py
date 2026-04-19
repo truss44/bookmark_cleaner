@@ -1338,6 +1338,130 @@ def consolidate_lone_folders(
 
 
 # ---------------------------------------------------------------------------
+# Similar-folder merging
+# ---------------------------------------------------------------------------
+
+
+def _ai_suggest_folder_merges(
+    folder_names: list[str],
+) -> dict[str, list[str]]:
+    """Ask AI to identify groups of similar folder names to merge.
+
+    Returns {canonical_name: [names_to_merge_into_it, ...]}.
+    Only folders with clear overlap are grouped; unrelated folders are omitted.
+    """
+    prov = _get_ai_provider()
+    if prov is None:
+        return {}
+    provider, api_key, model = prov
+
+    prompt = (
+        "Below is a list of bookmark folder names.\n"
+        "Identify groups of folders that represent the same topic "
+        "and should be merged into one.\n"
+        "For each group choose the best canonical name "
+        "(prefer the most descriptive existing name).\n"
+        "\nFolder names:\n"
+        f"{json.dumps(folder_names, ensure_ascii=False)}\n"
+        "\nRules:\n"
+        "- Only group folders that are clearly about the same topic.\n"
+        "- Do NOT merge unrelated folders just because they are small.\n"
+        "- The canonical name MUST be one of the names in the list.\n"
+        "- Omit folders that need no merging.\n"
+        "- Return ONLY valid JSON: "
+        '{"canonical": ["alias1", "alias2"], ...}\n'
+        "- If nothing should be merged return {}\n"
+    )
+    try:
+        raw = _call_ai(provider, api_key, model, prompt)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return {}
+        result: dict[str, list[str]] = {}
+        for canonical, aliases in data.items():
+            if (
+                isinstance(aliases, list)
+                and canonical in folder_names
+                and aliases
+            ):
+                valid = [
+                    a for a in aliases
+                    if isinstance(a, str) and a in folder_names
+                    and a != canonical
+                ]
+                if valid:
+                    result[canonical] = valid
+        return result
+    except Exception:
+        return {}
+
+
+def _find_folder_by_name(
+    node: Folder, name: str
+) -> Optional[tuple["Folder", "Folder"]]:
+    """Return (parent, folder) for first folder with given name, or None."""
+    for child in node.children:
+        if isinstance(child, Folder):
+            if child.name == name:
+                return (node, child)
+            found = _find_folder_by_name(child, name)
+            if found:
+                return found
+    return None
+
+
+def _merge_folder_into(
+    parent: Folder, src: Folder, dest: Folder
+) -> None:
+    """Move all children of src into dest, then delete src from parent."""
+    for child in list(src.children):
+        if isinstance(child, Bookmark):
+            dest.children.append(child)
+        elif isinstance(child, Folder):
+            existing = next(
+                (
+                    c for c in dest.children
+                    if isinstance(c, Folder) and c.name == child.name
+                ),
+                None,
+            )
+            if existing:
+                _merge_folder_into(src, child, existing)
+            else:
+                dest.children.append(child)
+        src.children.remove(child)
+    if src in parent.children:
+        parent.children.remove(src)
+
+
+def merge_similar_folders(
+    root: Folder, merges: dict[str, list[str]]
+) -> int:
+    """Apply merge groups to tree. Returns count of folders removed."""
+    removed = 0
+    for canonical, aliases in merges.items():
+        canon_result = _find_folder_by_name(root, canonical)
+        if canon_result is None:
+            continue
+        _, dest = canon_result
+        for alias in aliases:
+            alias_result = _find_folder_by_name(root, alias)
+            if alias_result is None:
+                continue
+            alias_parent, src = alias_result
+            if src is dest:
+                continue
+            _merge_folder_into(alias_parent, src, dest)
+            removed += 1
+    return removed
+
+
+# ---------------------------------------------------------------------------
 # Alphabetical sort
 # ---------------------------------------------------------------------------
 
@@ -1871,6 +1995,31 @@ def main():
                     f"  '{sf.name}' → bookmark "
                     f"'{bm.title[:60]}' would be relocated"
                 )
+
+    # ── Merge similar folders ──────────────────────────────────────────────
+    if not args.no_ai:
+        print("\nChecking for similar folders to merge …")
+        all_folder_names = _collect_folder_names(root)
+        top_level_names = [
+            n for n in all_folder_names if "/" not in n
+        ]
+        merges = _ai_suggest_folder_merges(top_level_names)
+        if merges:
+            if not args.dry_run:
+                removed_folders = merge_similar_folders(root, merges)
+                for canonical, aliases in merges.items():
+                    joined = ", ".join(f"'{a}'" for a in aliases)
+                    print(f"  Merged {joined} → '{canonical}'")
+                print(
+                    f"  {removed_folders} redundant folder(s) removed."
+                )
+            else:
+                print("  [dry-run] Would merge:")
+                for canonical, aliases in merges.items():
+                    joined = ", ".join(f"'{a}'" for a in aliases)
+                    print(f"    {joined} → '{canonical}'")
+        else:
+            print("  No similar folders found.")
 
     # ── Sort all folders and bookmarks alphabetically ──────────────────────
     if not args.dry_run:
