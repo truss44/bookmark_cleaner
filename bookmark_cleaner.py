@@ -1864,7 +1864,7 @@ def main():
                 fd = sys.stdin.fileno()
                 old = termios.tcgetattr(fd)
                 try:
-                    tty.setraw(fd)
+                    tty.setcbreak(fd)
                     while not event.is_set():
                         ch = sys.stdin.read(1)
                         if ch == "\x1b":
