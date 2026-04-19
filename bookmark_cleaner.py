@@ -1408,7 +1408,8 @@ def write_bookmarks(root: Folder, path: str) -> None:
 
 # ---------------------------------------------------------------------------
 
-_CHROMIUM_EPOCH_OFFSET = 11_644_473_600  # seconds between 1601-01-01 and 1970-01-01
+# Seconds between Windows epoch (1601-01-01) and Unix epoch (1970-01-01)
+_CHROMIUM_EPOCH_OFFSET = 11_644_473_600
 
 
 def find_browser_bookmark_files() -> list[tuple[str, Path]]:
@@ -1417,25 +1418,39 @@ def find_browser_bookmark_files() -> list[tuple[str, Path]]:
     platform = sys.platform
 
     if platform == "win32":
-        local = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
+        local = Path(
+            os.environ.get("LOCALAPPDATA", home / "AppData" / "Local")
+        )
+        bm = "User Data" / Path("Default") / "Bookmarks"
         candidates = [
-            ("Microsoft Edge", local / "Microsoft" / "Edge" / "User Data" / "Default" / "Bookmarks"),
-            ("Google Chrome", local / "Google" / "Chrome" / "User Data" / "Default" / "Bookmarks"),
-            ("Brave", local / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Bookmarks"),
+            ("Microsoft Edge", local / "Microsoft" / "Edge" / bm),
+            ("Google Chrome", local / "Google" / "Chrome" / bm),
+            (
+                "Brave",
+                local / "BraveSoftware" / "Brave-Browser" / bm,
+            ),
         ]
     elif platform == "darwin":
         app_support = home / "Library" / "Application Support"
+        bm = Path("Default") / "Bookmarks"
         candidates = [
-            ("Microsoft Edge", app_support / "Microsoft Edge" / "Default" / "Bookmarks"),
-            ("Google Chrome", app_support / "Google" / "Chrome" / "Default" / "Bookmarks"),
-            ("Brave", app_support / "BraveSoftware" / "Brave-Browser" / "Default" / "Bookmarks"),
+            ("Microsoft Edge", app_support / "Microsoft Edge" / bm),
+            ("Google Chrome", app_support / "Google" / "Chrome" / bm),
+            (
+                "Brave",
+                app_support / "BraveSoftware" / "Brave-Browser" / bm,
+            ),
         ]
     else:
         config = home / ".config"
+        bm = Path("Default") / "Bookmarks"
         candidates = [
-            ("Microsoft Edge", config / "microsoft-edge" / "Default" / "Bookmarks"),
-            ("Google Chrome", config / "google-chrome" / "Default" / "Bookmarks"),
-            ("Brave", config / "BraveSoftware" / "Brave-Browser" / "Default" / "Bookmarks"),
+            ("Microsoft Edge", config / "microsoft-edge" / bm),
+            ("Google Chrome", config / "google-chrome" / bm),
+            (
+                "Brave",
+                config / "BraveSoftware" / "Brave-Browser" / bm,
+            ),
         ]
 
     return [(name, path) for name, path in candidates if path.exists()]
@@ -1490,7 +1505,9 @@ def convert_chromium_json_to_html(json_path: Path, output_path: Path) -> None:
         add_date = f' ADD_DATE="{date}"' if date else ""
         last_mod = _chromium_ts(node.get("date_modified", ""))
         last_modified = f' LAST_MODIFIED="{last_mod}"' if last_mod else ""
-        lines.append(f"    <DT><H3{add_date}{last_modified}{extra_attrs}>{name}</H3>\n")
+        lines.append(
+            f"    <DT><H3{add_date}{last_modified}{extra_attrs}>{name}</H3>\n"
+        )
         lines.append("    <DL><p>\n")
         for child in node.get("children", []):
             _write_chromium_node(child, lines, indent=2)
@@ -1573,20 +1590,35 @@ def main():
             browsers = find_browser_bookmark_files()
 
             if len(browsers) == 0:
-                print("No bookmark HTML file found in current directory.", file=sys.stderr)
-                print("No browser bookmark files detected automatically.", file=sys.stderr)
-                supplied = input("Enter path to a bookmarks HTML file (or press Enter to exit): ").strip()
+                print(
+                    "No bookmark HTML file found in current directory.",
+                    file=sys.stderr,
+                )
+                print(
+                    "No browser bookmark files detected automatically.",
+                    file=sys.stderr,
+                )
+                supplied = input(
+                    "Enter path to bookmarks HTML file"
+                    " (or press Enter to exit): "
+                ).strip()
                 if not supplied:
                     sys.exit(1)
                 supplied_path = Path(supplied).expanduser().resolve()
                 if not supplied_path.exists():
-                    print(f"ERROR: File not found: {supplied_path}", file=sys.stderr)
+                    print(
+                        f"ERROR: File not found: {supplied_path}",
+                        file=sys.stderr,
+                    )
                     sys.exit(1)
                 args.input = str(supplied_path)
 
             elif len(browsers) == 1:
                 bname, bjson = browsers[0]
-                export_path = Path(".") / f"{bname.lower().replace(' ', '_')}_bookmarks_export.html"
+                slug = bname.lower().replace(" ", "_")
+                export_path = (
+                    Path(".") / f"{slug}_bookmarks_export.html"
+                )
                 print(f"Found {bname} bookmarks at: {bjson}")
                 print(f"Auto-exporting to: {export_path}")
                 convert_chromium_json_to_html(bjson, export_path)
@@ -1596,8 +1628,12 @@ def main():
                 print("Found browser bookmark files:")
                 for i, (bname, bpath) in enumerate(browsers, 1):
                     print(f"  {i}. {bname}: {bpath}")
-                print(f"  {len(browsers) + 1}. Enter a custom file path")
-                raw = input(f"Select [1–{len(browsers) + 1}] (default 1): ").strip() or "1"
+                last = len(browsers) + 1
+                print(f"  {last}. Enter a custom file path")
+                raw = (
+                    input(f"Select [1–{last}] (default 1): ").strip()
+                    or "1"
+                )
                 try:
                     choice = int(raw)
                 except ValueError:
@@ -1605,17 +1641,27 @@ def main():
                     sys.exit(1)
                 if 1 <= choice <= len(browsers):
                     bname, bjson = browsers[choice - 1]
-                    export_path = Path(".") / f"{bname.lower().replace(' ', '_')}_bookmarks_export.html"
+                    slug = bname.lower().replace(" ", "_")
+                    export_path = (
+                        Path(".") / f"{slug}_bookmarks_export.html"
+                    )
                     print(f"Exporting {bname} bookmarks to: {export_path}")
                     convert_chromium_json_to_html(bjson, export_path)
                     args.input = str(export_path)
-                elif choice == len(browsers) + 1:
-                    supplied = input("Enter path to bookmarks HTML file: ").strip()
+                elif choice == last:
+                    supplied = input(
+                        "Enter path to bookmarks HTML file: "
+                    ).strip()
                     if not supplied:
                         sys.exit(1)
-                    supplied_path = Path(supplied).expanduser().resolve()
+                    supplied_path = (
+                        Path(supplied).expanduser().resolve()
+                    )
                     if not supplied_path.exists():
-                        print(f"ERROR: File not found: {supplied_path}", file=sys.stderr)
+                        print(
+                            f"ERROR: File not found: {supplied_path}",
+                            file=sys.stderr,
+                        )
                         sys.exit(1)
                     args.input = str(supplied_path)
                 else:
