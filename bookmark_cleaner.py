@@ -1916,6 +1916,7 @@ def main():
 
     print(f"✓ Original file kept as-is: {input_path}")
     print(f"✓ Cleaned output will be written to: {output_path}")
+    print("  (Press Ctrl+C or Escape at any time to cancel cleanly)")
 
     # ── Parse ──────────────────────────────────────────────────────────────
     print(f"\nParsing bookmarks from: {input_path}")
