@@ -620,6 +620,24 @@ def build_ai_subfolder_map(
         return {}
 
 
+def _collect_eligible_folders(
+    node: Folder, min_bookmarks: int
+) -> list[tuple[Folder, str]]:
+    """Return (folder, path) pairs that have enough direct bookmarks."""
+    result = []
+    for child in node.children:
+        if not isinstance(child, Folder):
+            continue
+        direct = sum(1 for c in child.children if isinstance(c, Bookmark))
+        if direct >= min_bookmarks:
+            result.append((child, child.name))
+        result.extend(
+            (f, f"{child.name}/{p}")
+            for f, p in _collect_eligible_folders(child, min_bookmarks)
+        )
+    return result
+
+
 def subfolderize_existing_folders(
     root: Folder, use_ai: bool = True, min_bookmarks: int = 3
 ) -> dict[str, int]:
@@ -630,49 +648,47 @@ def subfolderize_existing_folders(
     Returns {folder_path: count_moved}.
     """
     moved_counts: dict[str, int] = {}
+    eligible = _collect_eligible_folders(root, min_bookmarks)
+    total = len(eligible)
 
-    def _process(node: Folder, path: str) -> None:
+    for done, (node, path) in enumerate(eligible, start=1):
         direct_bms = [
             c for c in node.children if isinstance(c, Bookmark)
         ]
-        if len(direct_bms) >= min_bookmarks and use_ai:
-            existing_subs = [
-                c.name
-                for c in node.children
-                if isinstance(c, Folder)
-            ]
-            sub_map = build_ai_subfolder_map(
-                node.name, direct_bms,
-                existing_subfolders=existing_subs or None,
-            )
-            count = 0
-            for bm in list(direct_bms):
-                suggested = sub_map.get(bm.href, "").strip()
-                if (
-                    not suggested
-                    or suggested == node.name
-                    or "/" in suggested
-                ):
-                    continue
-                target = _get_or_create_folder(node, suggested)
-                if target is node:
-                    continue
-                node.children.remove(bm)
-                target.children.append(bm)
-                count += 1
-            if count:
-                moved_counts[path] = count
-
-        for child in list(node.children):
-            if isinstance(child, Folder):
-                child_path = (
-                    f"{path}/{child.name}" if path else child.name
-                )
-                _process(child, child_path)
-
-    for child in list(root.children):
-        if isinstance(child, Folder):
-            _process(child, child.name)
+        print(
+            f"  [{done}/{total}] '{path}' "
+            f"({len(direct_bms)} bookmarks) …",
+            flush=True,
+        )
+        if not use_ai:
+            continue
+        existing_subs = [
+            c.name for c in node.children if isinstance(c, Folder)
+        ]
+        sub_map = build_ai_subfolder_map(
+            node.name, direct_bms,
+            existing_subfolders=existing_subs or None,
+        )
+        count = 0
+        for bm in list(direct_bms):
+            suggested = sub_map.get(bm.href, "").strip()
+            if (
+                not suggested
+                or suggested == node.name
+                or "/" in suggested
+            ):
+                continue
+            target = _get_or_create_folder(node, suggested)
+            if target is node:
+                continue
+            node.children.remove(bm)
+            target.children.append(bm)
+            count += 1
+        if count:
+            moved_counts[path] = count
+            print(f"    → {count} bookmark(s) moved into sub-folders")
+        else:
+            print("    → no sub-folder groupings found")
 
     return moved_counts
 
@@ -2264,17 +2280,7 @@ def main():
     # ── Sub-folder pass: organise bookmarks within existing folders ────────
     if not args.dry_run and not args.no_ai:
         print("\nCreating sub-folders within existing folders …")
-        sub_counts = subfolderize_existing_folders(
-            root, use_ai=True
-        )
-        if sub_counts:
-            for folder_path, count in sorted(sub_counts.items()):
-                print(
-                    f"  '{folder_path}': {count} bookmark(s) "
-                    "moved into sub-folders"
-                )
-        else:
-            print("  No sub-folder groupings found.")
+        subfolderize_existing_folders(root, use_ai=True)
 
     # ── Merge lone folders ─────────────────────────────────────────────────
     if not args.dry_run:
