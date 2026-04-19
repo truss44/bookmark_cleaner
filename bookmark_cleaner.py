@@ -698,7 +698,7 @@ def _build_ai_subfolder_maps_batch(
             href_map: dict[str, str] = {}
             for bi_str, sub in bm_map.items():
                 bi = int(bi_str)
-                if 0 <= bi < len(bms):
+                if 0 <= bi < len(bms) and isinstance(sub, str):
                     href_map[bms[bi].href] = sub
             result[fi] = href_map
         return result
@@ -1484,7 +1484,7 @@ def _ai_best_folders_for_bookmarks(
         result: dict[str, str] = {}
         for idx_str, path in mapping.items():
             idx = int(idx_str)
-            if 0 <= idx < len(bookmarks):
+            if 0 <= idx < len(bookmarks) and isinstance(path, str):
                 path = path.strip()
                 if path in folder_names:
                     result[bookmarks[idx].href] = path
