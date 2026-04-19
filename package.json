@@ -1,6 +1,6 @@
 {
   "name": "bookmark_cleaner",
-  "version": "1.0.0",
+  "version": "1.3.2",
   "description": "A Python command-line tool that parses your exported Edge favorites, removes dead links, and automatically organizes unfoldered bookmarks into topic-based folders — producing a clean HTML file ready to import back into Edge.",
   "main": "index.js",
   "scripts": {

@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.2 (2026-04-19)
+
+### Bug Fixes
+
+- Configure semantic-release to use commit-based versioning and sync package.json version
+  ([`1a07039`](https://github.com/truss44/bookmark_cleaner/commit/1a070397c10abc75a3ae8cca88afe01458f7202a))
+
+
 ## v1.3.1 (2026-04-19)
 
 ### Bug Fixes
