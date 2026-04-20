@@ -30,8 +30,8 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Install npm dependencies
-        run: npm install
+      - name: Install pnpm dependencies
+        run: pnpm install
 
-      - name: Run Prettier format check
-        run: npm run format:check
+      - name: Check formatting
+        run: pnpm format:check
