@@ -40,5 +40,5 @@ desktop.ini
 
 # Node.js
 node_modules/
-package-lock.json
-.npm/
+pnpm-lock.yaml
+.pnpm-store/

@@ -92,17 +92,17 @@ The script uses AI to intelligently assign your bookmarks to folders. Choose one
 
 ### Code Formatting
 
-This project uses Prettier for code formatting. The following npm scripts are available:
+This project uses Prettier for code formatting. The following pnpm scripts are available:
 
 ```bash
 # Install dependencies (first time only)
-npm install
+pnpm install
 
 # Format all supported files (.md, .json, .yml, .yaml, .html, .css, .js, .ts)
-npm run format
+pnpm format
 
 # Check formatting without making changes
-npm run format:check
+pnpm format:check
 ```
 
 Configuration is in `.prettierrc`. Note: Prettier does not format Python files; for Python code formatting, use Black or your preferred Python formatter.
@@ -116,13 +116,13 @@ This project uses [pytest](https://pytest.org/) for testing. Tests live in the `
 pip install pytest pytest-cov
 
 # Run all tests
-npm test
+pnpm test
 
 # Or run directly
 python3 -m pytest tests/ -v
 
 # Run with coverage report
-npm run test:coverage
+pnpm run test:coverage
 
 # Or run directly
 python3 -m pytest tests/ -v --cov=bookmark_cleaner --cov-report=term-missing
@@ -136,7 +136,7 @@ This project uses [flake8](https://flake8.pycqa.org/) for Python linting. To lin
 
 ```bash
 # Run the linter
-npm run lint
+pnpm lint
 
 # Or run directly
 python3 -m flake8 bookmark_cleaner.py
@@ -150,10 +150,10 @@ The lint script is configured in `package.json` and runs flake8 with a maximum l
 python bookmark_cleaner.py favorites.html
 ```
 
-Or using npm (after running `npm install`):
+Or using pnpm (after running `pnpm install`):
 
 ```bash
-npm start favorites.html
+pnpm start favorites.html
 ```
 
 This will:
