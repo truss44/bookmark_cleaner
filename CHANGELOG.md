@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v1.3.3 (2026-04-21)
+
+### Bug Fixes
+
+- Remove Node.js/pnpm steps from Python lint workflow
+  ([`f29edc8`](https://github.com/truss44/bookmark_cleaner/commit/f29edc8a035cc90985f881b749d0e1be4c8759d5))
+
+### Chores
+
+- Add .npmrc with pnpm configuration
+  ([`38bf07f`](https://github.com/truss44/bookmark_cleaner/commit/38bf07fe0412afa3575f1183aa856faea29d3baf))
+
+- Changing to pnpm
+  ([`ddc6454`](https://github.com/truss44/bookmark_cleaner/commit/ddc645448058bb8362eb3cf2e9d3a1e708f94f47))
+
+- Convert run commands to just pnpm
+  ([`e77d464`](https://github.com/truss44/bookmark_cleaner/commit/e77d4648af9e2deff437c347f87e9454661f0c63))
+
+- Remove .npmrc (Python project, not needed)
+  ([`91bc709`](https://github.com/truss44/bookmark_cleaner/commit/91bc709f1697a00a52e840850136e44b395f2d63))
+
+
 ## v1.3.2 (2026-04-19)
 
 ### Bug Fixes
