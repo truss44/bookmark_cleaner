@@ -122,7 +122,7 @@ pnpm test
 python3 -m pytest tests/ -v
 
 # Run with coverage report
-pnpm run test:coverage
+pnpm test:coverage
 
 # Or run directly
 python3 -m pytest tests/ -v --cov=bookmark_cleaner --cov-report=term-missing
