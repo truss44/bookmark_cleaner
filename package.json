@@ -9,7 +9,8 @@
     "start": "python bookmark_cleaner.py",
     "format": "prettier --write \"**/*.{md,json,yml,yaml,html,css,js,ts}\"",
     "format:check": "prettier --check \"**/*.{md,json,yml,yaml,html,css,js,ts}\"",
-    "lint": "python3 -m flake8 bookmark_cleaner.py"
+    "lint": "python3 -m flake8 bookmark_cleaner.py",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
@@ -24,6 +25,9 @@
   },
   "homepage": "https://github.com/truss44/bookmark_cleaner#readme",
   "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
+    "husky": "^9.1.7",
     "prettier": "^3.8.3"
   }
 }
