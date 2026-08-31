@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v1.3.4 (2026-08-31)
+
+### Bug Fixes
+
+- **commitlint**: Assign config to variable before default export
+  ([`835f03d`](https://github.com/truss44/bookmark_cleaner/commit/835f03d68e9ddff90084c7babbdb08385170d5c0))
+
+### Chores
+
+- Add commitlint and husky for conventional commit enforcement
+  ([`eab68de`](https://github.com/truss44/bookmark_cleaner/commit/eab68ded4bb2e8cd15d1b14531966d30333f0e28))
+
+- Enforce header-max-length 150 in commitlint
+  ([`4e590e4`](https://github.com/truss44/bookmark_cleaner/commit/4e590e480f77ed1dc1a782a3a91faabf6b6f9355))
+
+- Use GH_TOKEN for release workflow
+  ([`7b37fd0`](https://github.com/truss44/bookmark_cleaner/commit/7b37fd03a11ddd98d54a4f702d55bfba415e0634))
+
+- **deps**: Bump actions/checkout in the github-actions group
+  ([`9c54eb2`](https://github.com/truss44/bookmark_cleaner/commit/9c54eb21435544cba8f6aea741456444e16918f0))
+
+- **deps**: Bump actions/setup-python in the github-actions group
+  ([`63827dd`](https://github.com/truss44/bookmark_cleaner/commit/63827dd4fa4d4f79c4ba4f05b117d712e4f8f019))
+
+
 ## v1.3.3 (2026-04-21)
 
 ### Bug Fixes
