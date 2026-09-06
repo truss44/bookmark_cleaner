@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.3.5 (2026-09-06)
+
+### Bug Fixes
+
+- **deps**: Use correct corepack hash and upgrade corepack in build configs
+  ([`033b94d`](https://github.com/truss44/bookmark_cleaner/commit/033b94d0d0c9b27468fe5d0f1ad7e0992f598552))
+
+### Chores
+
+- **deps**: Add packageManager field for pnpm 11.24.0
+  ([`780a97d`](https://github.com/truss44/bookmark_cleaner/commit/780a97df2051eba58a7c97e212cf65621cb213c4))
+
+- **deps**: Upgrade pnpm to 12.3.4
+  ([`fb672fb`](https://github.com/truss44/bookmark_cleaner/commit/fb672fb1e785093a739804d47dae716c153b9156))
+
+### Documentation
+
+- Add agent documentation for project structure and development
+  ([`25e899b`](https://github.com/truss44/bookmark_cleaner/commit/25e899bab0bc08472b7b48af9822154a62d03b12))
+
+
 ## v1.3.4 (2026-08-31)
 
 ### Bug Fixes
