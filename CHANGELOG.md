@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.3.6 (2026-09-19)
+
+### Bug Fixes
+
+- **deps**: Override js-yaml to 4.3.2 to resolve high severity vulnerability
+  ([`18cbcc4`](https://github.com/truss44/bookmark_cleaner/commit/18cbcc4b7aa4c7189d9cb986bee9fe6d4321877a))
+
+### Chores
+
+- **deps**: Upgrade pnpm to 12.4.2
+  ([`2d2f0b9`](https://github.com/truss44/bookmark_cleaner/commit/2d2f0b9a52f217f853d3450e39cda18defff0e77))
+
+
 ## v1.3.5 (2026-09-06)
 
 ### Bug Fixes
