@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.3.7 (2026-11-24)
+
+### Bug Fixes
+
+- **deps**: Patch fast-uri advisories
+  ([`215130a`](https://github.com/truss44/bookmark_cleaner/commit/215130ab9ca2a1384d39d0c08bc0f47a64f34360))
+
+### Chores
+
+- **deps**: Group dependabot updates into fewer pull requests
+  ([`245769e`](https://github.com/truss44/bookmark_cleaner/commit/245769e3a8f31d8c2fe1c415ffbac7eabc32f6f6))
+
+- **deps**: Update dependencies
+  ([`a95ce12`](https://github.com/truss44/bookmark_cleaner/commit/a95ce1233019c3e9e034aa89b781152f7491b793))
+
+
 ## v1.3.6 (2026-09-19)
 
 ### Bug Fixes
